@@ -1,0 +1,40 @@
+# Configuración para Backend en Plesk
+# Este archivo debe estar en la carpeta backend
+
+# Habilitar Passenger para Node.js
+PassengerEnabled on
+PassengerAppType node
+PassengerStartupFile server.js
+
+# Configuración de Node.js
+PassengerNodejs /usr/bin/node
+
+# Variables de entorno
+PassengerEnvVar NODE_ENV production
+PassengerEnvVar PORT 3002
+
+# Configuración de memoria
+PassengerMaxPoolSize 4
+PassengerMinInstances 1
+PassengerMaxInstances 2
+
+# Configuración de timeout
+PassengerTimeout 300
+
+# Configuración de logs
+PassengerLogLevel 3
+
+# Headers de seguridad
+Header always set X-Frame-Options DENY
+Header always set X-Content-Type-Options nosniff
+Header always set X-XSS-Protection "1; mode=block"
+
+# CORS para desarrollo
+Header always set Access-Control-Allow-Origin "*"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
+
+# Manejar preflight requests
+RewriteEngine On
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
