@@ -42,6 +42,7 @@ const menuItems = [
       { title: "Tipos de Boleta", href: "/admin/boletas/tipos" },
       { title: "Boletas Virtuales", href: "/admin/boletas/virtuales" },
       { title: "Boletas Físicas", href: "/admin/boletas/fisicas" },
+      { title: "Plantillas de Boletos", href: "/admin/boletas/plantillas" },
       { title: "Ventas", href: "/admin/boletas/ventas" },
       { title: "Check-in", href: "/admin/boletas/checkin" },
     ],

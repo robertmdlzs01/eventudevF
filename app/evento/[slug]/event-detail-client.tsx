@@ -259,7 +259,7 @@ export default function EventDetailClient({ event }: EventDetailClientProps) {
                 <CardContent>
                   <div className="space-y-6">
                     {ticketTypes.map((ticketType, index) => (
-                      <div key={index} className="border rounded-lg p-6 hover:shadow-md transition-shadow">
+                      <div key={ticketType.id || `ticket-type-${index}`} className="border rounded-lg p-6 hover:shadow-md transition-shadow">
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
                             <h4 className="font-semibold text-xl mb-2">{ticketType.name}</h4>
@@ -397,7 +397,7 @@ export default function EventDetailClient({ event }: EventDetailClientProps) {
                 <CardContent>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {event.gallery_images.map((image, index) => (
-                      <div key={index} className="relative aspect-square rounded-lg overflow-hidden group">
+                      <div key={`gallery-image-${index}-${image}`} className="relative aspect-square rounded-lg overflow-hidden group">
                         <Image
                           src={image}
                           alt={`Imagen ${index + 1} de ${event.title}`}

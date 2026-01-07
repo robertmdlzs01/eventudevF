@@ -1598,14 +1598,12 @@ export class ApiClient {
 
   // Obtener todos los puntos de venta
   async getSalesPoints(): Promise<ApiResponse<any>> {
-    // Usar endpoint de prueba temporalmente
-    return this.request('/test-auth-sales-points')
+    return this.request('/sales-points')
   }
 
   // Crear nuevo punto de venta
   async createSalesPoint(data: any): Promise<ApiResponse<any>> {
-    // Usar endpoint de prueba temporalmente
-    return this.request('/test-auth-sales-points', {
+    return this.request('/sales-points', {
       method: 'POST',
       body: JSON.stringify(data)
     })

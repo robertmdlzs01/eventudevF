@@ -2362,7 +2362,9 @@ export async function getAdminMedia(): Promise<AdminMedia[]> {
   try {
     const response = await apiClient.getMedia()
     if (response.success && response.data) {
-      return response.data.map((media: any) => ({
+      // Asegurar que response.data es un array
+      const mediaArray = Array.isArray(response.data) ? response.data : []
+      return mediaArray.map((media: any) => ({
         id: media.id.toString(),
         name: media.name,
         originalName: media.original_name,

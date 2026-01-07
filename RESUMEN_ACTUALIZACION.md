@@ -173,3 +173,5 @@ npm run dev
 **Última actualización:** Enero 2025  
 **Estado del proyecto:** ✅ Actualizado y funcional
 
+
+

@@ -5,10 +5,30 @@ const realTimeUpdatesService = require('./services/realTimeUpdates')
 
 class WebSocketServer {
   constructor(server) {
+    // Configuración CORS para WebSocket más flexible en desarrollo
+    const wsCorsOrigin = process.env.NODE_ENV === 'development' 
+      ? (origin, callback) => {
+          // Permitir localhost y direcciones IP locales en desarrollo
+          if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+            return callback(null, true)
+          }
+          const localIPPattern = /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/
+          if (localIPPattern.test(origin)) {
+            return callback(null, true)
+          }
+          const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || []
+          if (allowedOrigins.includes(origin)) {
+            return callback(null, true)
+          }
+          callback(new Error('Not allowed by CORS'))
+        }
+      : process.env.FRONTEND_URL || "https://dev1.eventu.co"
+    
     this.io = new Server(server, {
       cors: {
-        origin: process.env.FRONTEND_URL || "https://dev1.eventu.co",
-        methods: ["GET", "POST"]
+        origin: wsCorsOrigin,
+        methods: ["GET", "POST"],
+        credentials: true
       }
     })
     

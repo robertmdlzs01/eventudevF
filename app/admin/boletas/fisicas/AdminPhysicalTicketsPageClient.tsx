@@ -20,6 +20,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Plus, Search, Edit, Trash2, Printer, MapPin, Package, Eye, Download } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
 import { getPhysicalTickets, createPhysicalTicketBatch, updatePhysicalTicketStatus, getSalesPoints, exportData } from "@/app/admin/actions"
+import { TicketPrintDialog } from "@/components/admin/ticket-print-dialog"
+import type { TicketData } from "@/lib/ticket-templates"
 
 interface PhysicalTicket {
   id: string
@@ -142,6 +144,7 @@ export default function AdminPhysicalTicketsPageClient() {
   const [salesPoints, setSalesPoints] = useState<any[]>([])
   const [events, setEvents] = useState<any[]>([])
   const [ticketTypes, setTicketTypes] = useState<any[]>([])
+  const [selectedTicketForPrint, setSelectedTicketForPrint] = useState<PhysicalTicket | null>(null)
   const [formData, setFormData] = useState({
     event_id: '',
     ticket_type_id: '',
@@ -261,29 +264,32 @@ export default function AdminPhysicalTicketsPageClient() {
     }
   }
 
-  const handlePrintBatch = async (ticket: PhysicalTicket) => {
-    try {
-      const success = await updatePhysicalTicketStatus(ticket.id, 'printed')
-      if (success) {
-        toast({
-          title: "Lote impreso",
-          description: "El lote de boletas ha sido enviado a impresión.",
-        })
-        loadData() // Reload data
-      } else {
-        toast({
-          title: "Error",
-          description: "No se pudo actualizar el estado del lote.",
-          variant: "destructive",
-        })
-      }
-    } catch (error) {
-      console.error('Error printing batch:', error)
-      toast({
-        title: "Error",
-        description: "Error al imprimir el lote.",
-        variant: "destructive",
-      })
+  const handlePrintBatch = (ticket: PhysicalTicket) => {
+    setSelectedTicketForPrint(ticket)
+  }
+
+  const convertToTicketData = (ticket: PhysicalTicket): TicketData => {
+    // Buscar el evento correspondiente
+    const event = events.find(e => e.title === ticket.eventName)
+    
+    return {
+      eventName: ticket.eventName,
+      eventDate: event?.date || new Date().toLocaleDateString('es-ES', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      }),
+      eventTime: event?.time || '20:00',
+      eventLocation: event?.location || ticket.salesPoint,
+      ticketNumber: ticket.batchNumber,
+      ticketId: ticket.id,
+      ticketType: ticket.ticketType,
+      price: ticket.price,
+      customerName: 'Cliente General', // Para boletos físicos sin cliente específico
+      customerEmail: '',
+      qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${ticket.batchNumber}`,
+      purchaseDate: ticket.createdDate,
+      purchaseId: ticket.id,
     }
   }
 
@@ -621,7 +627,12 @@ export default function AdminPhysicalTicketsPageClient() {
                         <Eye className="h-4 w-4" />
                       </Button>
                       {ticket.status === "pending" && (
-                        <Button variant="ghost" size="sm" onClick={() => handlePrintBatch(ticket)}>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => handlePrintBatch(ticket)}
+                          title="Imprimir boleto con plantilla"
+                        >
                           <Printer className="h-4 w-4" />
                         </Button>
                       )}
@@ -644,6 +655,19 @@ export default function AdminPhysicalTicketsPageClient() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Diálogo de Impresión con Plantillas */}
+      {selectedTicketForPrint && (
+        <TicketPrintDialog
+          ticketData={convertToTicketData(selectedTicketForPrint)}
+          open={!!selectedTicketForPrint}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedTicketForPrint(null)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

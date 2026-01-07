@@ -131,19 +131,53 @@ app.use(helmet({
 }))
 app.use(compression())
 app.use(generalLimiter)
-app.use(
-  cors({
-    origin: process.env.ALLOWED_ORIGINS?.split(',') || [
-      'https://dev1.eventu.co',
-      'https://www.dev1.eventu.co',
-      'http://localhost:3000'
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    optionsSuccessStatus: 200
-  }),
-)
+// Configuración CORS más flexible para desarrollo
+const corsOptions = {
+  origin: function (origin, callback) {
+    // En desarrollo, permitir localhost y direcciones IP locales
+    if (process.env.NODE_ENV === 'development') {
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        'https://dev1.eventu.co',
+        'https://www.dev1.eventu.co',
+        'http://localhost:3000',
+        'http://localhost:3001'
+      ]
+      
+      // Permitir localhost con cualquier puerto
+      if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true)
+      }
+      
+      // Permitir direcciones IP locales (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+      const localIPPattern = /^https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/
+      if (localIPPattern.test(origin)) {
+        return callback(null, true)
+      }
+      
+      // Verificar si el origen está en la lista permitida
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true)
+      }
+    } else {
+      // En producción, solo permitir orígenes específicos
+      const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()) || [
+        'https://dev1.eventu.co',
+        'https://www.dev1.eventu.co'
+      ]
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true)
+      }
+    }
+    
+    callback(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+}
+
+app.use(cors(corsOptions))
 
 app.use((req, res, next) => {
   logger.info(`${req.method} ${req.path} - ${req.ip}`)

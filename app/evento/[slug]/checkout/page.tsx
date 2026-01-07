@@ -3,15 +3,17 @@ import { notFound } from "next/navigation"
 import CheckoutClient from "./checkout-client"
 
 interface CheckoutPageProps {
-  params: { slug: string }
-  searchParams: { 
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ 
     tickets?: string
     data?: string
-  }
+  }>
 }
 
 export default async function CheckoutPage({ params, searchParams }: CheckoutPageProps) {
-  const event = await getEventBySlugOriginal(params.slug)
+  const { slug } = await params
+  const resolvedSearchParams = await searchParams
+  const event = await getEventBySlugOriginal(slug)
   
   if (!event) {
     notFound()
@@ -20,11 +22,11 @@ export default async function CheckoutPage({ params, searchParams }: CheckoutPag
   // Parsear los datos de checkout
   let checkoutData = {}
   try {
-    if (searchParams.data) {
-      checkoutData = JSON.parse(decodeURIComponent(searchParams.data))
-    } else if (searchParams.tickets) {
+    if (resolvedSearchParams.data) {
+      checkoutData = JSON.parse(decodeURIComponent(resolvedSearchParams.data))
+    } else if (resolvedSearchParams.tickets) {
       checkoutData = {
-        selectedTickets: JSON.parse(searchParams.tickets),
+        selectedTickets: JSON.parse(resolvedSearchParams.tickets),
         selectedSeats: []
       }
     }

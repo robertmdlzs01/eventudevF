@@ -7,9 +7,7 @@ const nextConfig = {
     return 'build-' + Date.now()
   },
   
-  experimental: {
-    serverComponentsExternalPackages: []
-  },
+  serverExternalPackages: [],
   images: {
     remotePatterns: [
       {
@@ -118,7 +116,6 @@ const nextConfig = {
     NEXT_PUBLIC_FRONTEND_URL: process.env.NEXT_PUBLIC_FRONTEND_URL,
   },
 
-  swcMinify: true,
   reactStrictMode: true,
   trailingSlash: false,
   

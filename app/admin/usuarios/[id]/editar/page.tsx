@@ -6,11 +6,12 @@ export const metadata = {
 }
 
 interface AdminEditUserPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
-export default function AdminEditUserPage({ params }: AdminEditUserPageProps) {
-  return <AdminEditUserPageClient params={params} />
+export default async function AdminEditUserPage({ params }: AdminEditUserPageProps) {
+  const { id } = await params
+  return <AdminEditUserPageClient params={{ id }} />
 }

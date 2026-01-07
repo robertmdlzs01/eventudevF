@@ -166,7 +166,140 @@ router.get('/sales', auth, async (req, res) => {
   }
 });
 
-// Generar reporte de eventos
+// Generar reporte de eventos (lista general)
+router.get('/events', auth, async (req, res) => {
+  try {
+    const { startDate, endDate, categoryId, status, organizerId } = req.query;
+    
+    // Construir consulta SQL
+    let query = `
+      SELECT 
+        e.id,
+        e.title,
+        e.date,
+        e.status,
+        e.capacity,
+        e.image_url,
+        c.name as category_name,
+        COALESCE(SUM(s.quantity), 0) as tickets_sold,
+        COALESCE(SUM(s.total_amount), 0) as revenue,
+        COUNT(DISTINCT s.id) as total_orders
+      FROM events e
+      LEFT JOIN categories c ON e.category_id = c.id
+      LEFT JOIN sales s ON e.id = s.event_id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 1;
+    
+    if (startDate && endDate) {
+      query += ` AND e.date BETWEEN $${paramCount} AND $${paramCount + 1}`;
+      params.push(startDate, endDate);
+      paramCount += 2;
+    }
+    
+    if (categoryId) {
+      query += ` AND e.category_id = $${paramCount}`;
+      params.push(categoryId);
+      paramCount++;
+    }
+    
+    if (status) {
+      query += ` AND e.status = $${paramCount}`;
+      params.push(status);
+      paramCount++;
+    }
+    
+    if (organizerId) {
+      query += ` AND e.organizer_id = $${paramCount}`;
+      params.push(organizerId);
+      paramCount++;
+    }
+    
+    query += ' GROUP BY e.id, e.title, e.date, e.status, e.capacity, e.image_url, c.name';
+    query += ' ORDER BY e.date DESC';
+    
+    const result = await db.query(query, params);
+    const events = result.rows;
+    
+    // Calcular estadísticas generales
+    const totalEvents = events.length;
+    const totalRevenue = events.reduce((sum, event) => sum + parseFloat(event.revenue || 0), 0);
+    const totalTicketsSold = events.reduce((sum, event) => sum + parseInt(event.tickets_sold || 0), 0);
+    const totalCapacity = events.reduce((sum, event) => sum + parseInt(event.capacity || 0), 0);
+    const averageOccupancyRate = totalCapacity > 0 ? (totalTicketsSold / totalCapacity) * 100 : 0;
+    
+    // Eventos por categoría
+    const eventsByCategory = {};
+    events.forEach(event => {
+      const category = event.category_name || 'Sin categoría';
+      if (!eventsByCategory[category]) {
+        eventsByCategory[category] = { count: 0, revenue: 0, ticketsSold: 0 };
+      }
+      eventsByCategory[category].count += 1;
+      eventsByCategory[category].revenue += parseFloat(event.revenue || 0);
+      eventsByCategory[category].ticketsSold += parseInt(event.tickets_sold || 0);
+    });
+    
+    // Top eventos
+    const topEvents = events
+      .sort((a, b) => parseFloat(b.revenue || 0) - parseFloat(a.revenue || 0))
+      .slice(0, 10)
+      .map(event => ({
+        eventId: event.id,
+        eventName: event.title,
+        eventDate: event.date,
+        ticketsSold: parseInt(event.tickets_sold || 0),
+        revenue: parseFloat(event.revenue || 0),
+        occupancyRate: parseInt(event.capacity || 0) > 0 
+          ? (parseInt(event.tickets_sold || 0) / parseInt(event.capacity || 0)) * 100 
+          : 0
+      }));
+    
+    const report = {
+      totalEvents,
+      totalRevenue,
+      totalTicketsSold,
+      totalCapacity,
+      averageOccupancyRate,
+      eventsByCategory: Object.entries(eventsByCategory).map(([category, data]) => ({
+        category,
+        count: data.count,
+        revenue: data.revenue,
+        ticketsSold: data.ticketsSold,
+        percentage: totalRevenue > 0 ? (data.revenue / totalRevenue) * 100 : 0
+      })),
+      topEvents,
+      events: events.map(event => ({
+        eventId: event.id,
+        eventName: event.title,
+        eventDate: event.date,
+        status: event.status,
+        capacity: parseInt(event.capacity || 0),
+        ticketsSold: parseInt(event.tickets_sold || 0),
+        revenue: parseFloat(event.revenue || 0),
+        occupancyRate: parseInt(event.capacity || 0) > 0 
+          ? (parseInt(event.tickets_sold || 0) / parseInt(event.capacity || 0)) * 100 
+          : 0,
+        totalOrders: parseInt(event.total_orders || 0)
+      }))
+    };
+    
+    res.json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    console.error('Error generando reporte de eventos:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// Generar reporte de evento específico
 router.get('/events/:eventId', auth, async (req, res) => {
   try {
     const { eventId } = req.params;
@@ -258,6 +391,121 @@ router.get('/events/:eventId', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error generando reporte de evento:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// Generar reporte de usuarios
+router.get('/users', auth, async (req, res) => {
+  try {
+    const { startDate, endDate, role, status } = req.query;
+    
+    // Construir consulta SQL
+    let query = `
+      SELECT 
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.role,
+        u.is_verified,
+        u.created_at,
+        COUNT(DISTINCT s.id) as total_orders,
+        COALESCE(SUM(s.total_amount), 0) as total_spent,
+        MAX(s.created_at) as last_purchase
+      FROM users u
+      LEFT JOIN sales s ON u.id = s.user_id
+      WHERE 1=1
+    `;
+    
+    const params = [];
+    let paramCount = 1;
+    
+    if (startDate && endDate) {
+      query += ` AND (u.created_at BETWEEN $${paramCount} AND $${paramCount + 1} OR s.created_at BETWEEN $${paramCount} AND $${paramCount + 1})`;
+      params.push(startDate, endDate);
+      paramCount += 2;
+    }
+    
+    if (role) {
+      query += ` AND u.role = $${paramCount}`;
+      params.push(role);
+      paramCount++;
+    }
+    
+    if (status) {
+      if (status === 'verified') {
+        query += ` AND u.is_verified = true`;
+      } else if (status === 'unverified') {
+        query += ` AND u.is_verified = false`;
+      }
+    }
+    
+    query += ' GROUP BY u.id, u.first_name, u.last_name, u.email, u.role, u.is_verified, u.created_at';
+    query += ' ORDER BY u.created_at DESC';
+    
+    const result = await db.query(query, params);
+    const users = result.rows;
+    
+    // Calcular estadísticas
+    const totalUsers = users.length;
+    const verifiedUsers = users.filter(u => u.is_verified).length;
+    const unverifiedUsers = totalUsers - verifiedUsers;
+    const usersWithOrders = users.filter(u => parseInt(u.total_orders || 0) > 0).length;
+    const usersByRole = {};
+    
+    users.forEach(user => {
+      const role = user.role || 'user';
+      if (!usersByRole[role]) {
+        usersByRole[role] = { count: 0, totalSpent: 0, totalOrders: 0 };
+      }
+      usersByRole[role].count += 1;
+      usersByRole[role].totalSpent += parseFloat(user.total_spent || 0);
+      usersByRole[role].totalOrders += parseInt(user.total_orders || 0);
+    });
+    
+    // Top usuarios
+    const topUsers = users
+      .sort((a, b) => parseFloat(b.total_spent || 0) - parseFloat(a.total_spent || 0))
+      .slice(0, 10)
+      .map(user => ({
+        userId: user.id,
+        name: `${user.first_name} ${user.last_name}`,
+        email: user.email,
+        role: user.role,
+        totalSpent: parseFloat(user.total_spent || 0),
+        totalOrders: parseInt(user.total_orders || 0),
+        lastPurchase: user.last_purchase
+      }));
+    
+    const report = {
+      totalUsers,
+      verifiedUsers,
+      unverifiedUsers,
+      usersWithOrders,
+      usersByRole: Object.entries(usersByRole).map(([role, data]) => ({
+        role,
+        count: data.count,
+        totalSpent: data.totalSpent,
+        totalOrders: data.totalOrders,
+        percentage: totalUsers > 0 ? (data.count / totalUsers) * 100 : 0
+      })),
+      topUsers,
+      newUsers: users.filter(u => {
+        if (!startDate) return false;
+        return new Date(u.created_at) >= new Date(startDate);
+      }).length
+    };
+    
+    res.json({
+      success: true,
+      data: report
+    });
+  } catch (error) {
+    console.error('Error generando reporte de usuarios:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor'

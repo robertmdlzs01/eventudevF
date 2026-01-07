@@ -3,11 +3,12 @@ import { notFound } from "next/navigation"
 import EventDetailClient from "./event-detail-client"
 
 interface EventPageProps {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }
 
 export default async function EventPage({ params }: EventPageProps) {
-  const event = await getEventBySlugOriginal(params.slug)
+  const { slug } = await params
+  const event = await getEventBySlugOriginal(slug)
   
   if (!event) {
     notFound()

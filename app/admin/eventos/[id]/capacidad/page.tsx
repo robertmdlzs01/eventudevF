@@ -1,10 +1,11 @@
 import { Suspense } from "react"
 import EventCapacityPageClient from "./EventCapacityPageClient"
 
-export default function EventCapacityPage({ params }: { params: { id: string } }) {
+export default async function EventCapacityPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   return (
     <Suspense fallback={<div>Cargando...</div>}>
-      <EventCapacityPageClient eventId={params.id} />
+      <EventCapacityPageClient eventId={id} />
     </Suspense>
   )
 }

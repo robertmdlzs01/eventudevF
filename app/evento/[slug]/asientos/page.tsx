@@ -3,14 +3,16 @@ import { notFound } from "next/navigation"
 import SeatSelectionClient from "./seat-selection-client"
 
 interface SeatSelectionPageProps {
-  params: { slug: string }
-  searchParams: { tickets?: string }
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ tickets?: string }>
 }
 
 export default async function SeatSelectionPage({ params, searchParams }: SeatSelectionPageProps) {
-  console.log('SeatSelectionPage - slug:', params.slug)
+  const { slug } = await params
+  const resolvedSearchParams = await searchParams
+  console.log('SeatSelectionPage - slug:', slug)
   
-  const event = await getEventBySlugOriginal(params.slug)
+  const event = await getEventBySlugOriginal(slug)
   
   console.log('SeatSelectionPage - event:', event)
   
@@ -22,8 +24,8 @@ export default async function SeatSelectionPage({ params, searchParams }: SeatSe
   // Parsear las boletas seleccionadas desde los query params
   let selectedTickets = {}
   try {
-    if (searchParams.tickets) {
-      selectedTickets = JSON.parse(searchParams.tickets)
+    if (resolvedSearchParams.tickets) {
+      selectedTickets = JSON.parse(resolvedSearchParams.tickets)
     }
   } catch (error) {
     console.error('Error parsing tickets:', error)

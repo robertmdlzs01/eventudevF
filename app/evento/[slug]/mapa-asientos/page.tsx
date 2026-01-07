@@ -2,9 +2,9 @@ import React from 'react'
 import SeatMapViewer from '@/components/seat-map-viewer'
 
 interface SeatMapPageProps {
-  params: {
+  params: Promise<{
     slug: string
-  }
+  }>
 }
 
 // Datos de ejemplo - en producción vendrían de la base de datos
@@ -170,7 +170,8 @@ const mockSeatMapData = {
   }
 }
 
-export default function SeatMapPage({ params }: SeatMapPageProps) {
+export default async function SeatMapPage({ params }: SeatMapPageProps) {
+  await params // Asegurar que params se resuelva
   const handleSeatClick = (seat: any) => {
     console.log('Asiento clickeado:', seat)
     // Aquí podrías abrir un modal con detalles del asiento

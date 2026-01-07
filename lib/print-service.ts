@@ -1,5 +1,9 @@
 // Servicio de impresión basado en el sistema QZ del WordPress
 // Integración con QZ Tray para impresión de tickets
+// Actualizado para soportar plantillas personalizables
+
+import type { TicketTemplate, TicketData } from './ticket-templates'
+import { ticketTemplateService } from './ticket-template-service'
 
 export interface PrintTicketData {
   ticketNumber: string
@@ -60,29 +64,31 @@ class PrintService {
     return btoa(data).substring(0, 8)
   }
 
-  // Imprimir ticket
-  async printTicket(ticketData: PrintTicketData, config: PrintConfig = {
-    paperSize: 'thermal',
-    orientation: 'portrait',
-    copies: 1
-  }): Promise<boolean> {
+  // Imprimir ticket con plantilla
+  async printTicketWithTemplate(
+    template: TicketTemplate,
+    ticketData: TicketData,
+    config?: PrintConfig
+  ): Promise<boolean> {
     try {
       if (!this.isConnected) {
         await this.connect()
       }
 
-      const qrCode = this.generateQRCode(ticketData)
+      // Generar HTML usando la plantilla
+      const ticketHTML = ticketTemplateService.generateTicketHTML(template, ticketData)
       
-      // Generar HTML del ticket
-      const ticketHTML = this.generateTicketHTML(ticketData, qrCode)
+      const printConfig = config || template.printConfig
       
       // Enviar a impresora
       const printData = {
         type: 'raw',
         format: 'html',
         data: ticketHTML,
-        printer: config.printerName,
-        copies: config.copies
+        printer: printConfig.printerName,
+        copies: printConfig.copies,
+        paperSize: printConfig.paperSize,
+        orientation: printConfig.orientation,
       }
 
       const response = await fetch(`${this.qzEndpoint}/print`, {
@@ -94,6 +100,43 @@ class PrintService {
       })
 
       return response.ok
+    } catch (error) {
+      console.error('Error imprimiendo ticket con plantilla:', error)
+      return false
+    }
+  }
+
+  // Imprimir ticket (método legacy - mantiene compatibilidad)
+  async printTicket(ticketData: PrintTicketData, config: PrintConfig = {
+    paperSize: 'thermal',
+    orientation: 'portrait',
+    copies: 1
+  }): Promise<boolean> {
+    try {
+      // Convertir PrintTicketData a TicketData
+      const ticketDataConverted: TicketData = {
+        eventName: ticketData.eventName,
+        eventDate: ticketData.eventDate,
+        eventTime: '',
+        eventLocation: ticketData.eventLocation,
+        ticketNumber: ticketData.ticketNumber,
+        ticketId: ticketData.ticketNumber,
+        ticketType: ticketData.ticketType,
+        price: ticketData.price,
+        customerName: ticketData.customerName,
+        customerEmail: '',
+        seatNumber: ticketData.seatNumber,
+        gate: ticketData.gate,
+        qrCode: ticketData.qrCode,
+        purchaseDate: new Date().toISOString(),
+        purchaseId: '',
+      }
+
+      // Obtener plantilla por defecto
+      const defaultTemplate = await ticketTemplateService.getDefaultTemplate()
+      
+      // Usar el nuevo método con plantilla
+      return await this.printTicketWithTemplate(defaultTemplate, ticketDataConverted, config)
     } catch (error) {
       console.error('Error imprimiendo ticket:', error)
       return false

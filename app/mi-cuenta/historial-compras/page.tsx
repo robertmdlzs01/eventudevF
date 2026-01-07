@@ -20,6 +20,8 @@ import {
 import { useRouter } from "next/navigation"
 import { PurchaseDetailsModal } from "@/components/purchase-details-modal"
 import { downloadInvoicePDF, viewPurchaseTickets, resendPurchaseTickets } from "@/lib/purchase-utils"
+import { useAuth } from "@/hooks/use-auth"
+import { apiClient } from "@/lib/api-client"
 
 interface Purchase {
   id: string
@@ -43,93 +45,47 @@ export default function HistorialComprasPage() {
   const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const router = useRouter()
+  const { isAuthenticated, user, token, isLoading } = useAuth()
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem("auth_token")
-      if (!token) {
+      if (isLoading) return
+      if (!isAuthenticated || !user || !token) {
         router.push("/login")
         return
       }
       
       try {
-        // Obtener datos reales del backend
-        const response = await fetch('http://localhost:3002/api/sales/user/4', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data) {
-            // Transformar datos del backend al formato esperado
-            const transformedPurchases: Purchase[] = data.data.map((sale: any) => ({
-              id: sale.id.toString(),
-              orderNumber: `ORD-${sale.id}`,
-              eventName: sale.event_name,
-              eventDate: sale.event_date,
-              venue: sale.event_venue,
-              ticketType: sale.ticket_type_name,
-              quantity: sale.quantity,
-              unitPrice: parseFloat(sale.unit_price),
-              totalAmount: parseFloat(sale.total_amount),
-              paymentMethod: sale.payment_method || "No especificado",
-              status: sale.status,
-              purchaseDate: sale.transaction_date,
-              transactionId: `TXN-${sale.id}`
-            }))
-            setPurchases(transformedPurchases)
-          }
-        } else {
-          // Fallback a datos mock si falla el backend
-          const mockPurchases: Purchase[] = [
-            {
-              id: "1",
-              orderNumber: "ORD-2024-001",
-              eventName: "Concierto Rock Nacional",
-              eventDate: "2024-12-15",
-              venue: "Estadio El Campín",
-              ticketType: "General",
-              quantity: 2,
-              unitPrice: 50000,
-              totalAmount: 100000,
-              paymentMethod: "Tarjeta de Crédito",
-              status: "completed",
-              purchaseDate: "2024-11-20",
-              transactionId: "TXN-001-2024"
-            }
-          ]
-          setPurchases(mockPurchases)
+        const response = await apiClient.getUserSales(String(user.id))
+        if (response.success && response.data) {
+          const transformedPurchases: Purchase[] = response.data.map((sale: any) => ({
+            id: sale.id?.toString?.() || `${sale.order_number || sale.transaction_id}`,
+            orderNumber: sale.order_number || `ORD-${sale.id}`,
+            eventName: sale.event_name,
+            eventDate: sale.event_date,
+            venue: sale.event_venue,
+            ticketType: sale.ticket_type_name,
+            quantity: sale.quantity,
+            unitPrice: Number.parseFloat(sale.unit_price),
+            totalAmount: Number.parseFloat(sale.total_amount),
+            paymentMethod: sale.payment_method || "No especificado",
+            status: sale.status,
+            purchaseDate: sale.transaction_date,
+            transactionId: sale.transaction_id || `TXN-${sale.id}`
+          }))
+          setPurchases(transformedPurchases)
+          return
         }
       } catch (error) {
         console.error('Error fetching purchases:', error)
-        // Fallback a datos mock en caso de error
-        const mockPurchases: Purchase[] = [
-          {
-            id: "1",
-            orderNumber: "ORD-2024-001",
-            eventName: "Concierto Rock Nacional",
-            eventDate: "2024-12-15",
-            venue: "Estadio El Campín",
-            ticketType: "General",
-            quantity: 2,
-            unitPrice: 50000,
-            totalAmount: 100000,
-            paymentMethod: "Tarjeta de Crédito",
-            status: "completed",
-            purchaseDate: "2024-11-20",
-            transactionId: "TXN-001-2024"
-          }
-        ]
-        setPurchases(mockPurchases)
+        setPurchases([])
       } finally {
         setLoading(false)
       }
     }
 
     checkAuth()
-  }, [router])
+  }, [router, isAuthenticated, user, token, isLoading])
 
   const getStatusBadge = (status: string) => {
     switch (status) {

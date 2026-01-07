@@ -6,11 +6,12 @@ export const metadata = {
 }
 
 interface AdminEditEventPageProps {
-  params: {
+  params: Promise<{
     id: string
-  }
+  }>
 }
 
-export default function AdminEditEventPage({ params }: AdminEditEventPageProps) {
-  return <AdminEditEventPageClient params={params} />
+export default async function AdminEditEventPage({ params }: AdminEditEventPageProps) {
+  const { id } = await params
+  return <AdminEditEventPageClient params={{ id }} />
 }

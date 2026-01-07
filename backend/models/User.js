@@ -1,6 +1,8 @@
 // Selección dinámica de base de datos según DB_TYPE
 const db = require("../config/database-postgres")
 const bcrypt = require("bcryptjs")
+require("dotenv").config({ path: require("path").join(__dirname, "../config.env") })
+const dbType = process.env.DB_TYPE || "postgresql"
 
 class User {
   constructor(data) {

@@ -2674,4 +2674,284 @@ function getFileType(filename) {
   }
 }
 
+// ============================================
+// TICKET TEMPLATES ROUTES
+// ============================================
+
+// Get all ticket templates
+router.get('/ticket-templates', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleGetTicketTemplates(req, res))
+    })
+  }
+  
+  return handleGetTicketTemplates(req, res)
+})
+
+async function handleGetTicketTemplates(req, res) {
+  try {
+    const { clientId, eventId } = req.query
+
+    let query = `
+      SELECT * FROM ticket_templates
+      WHERE is_active = true
+    `
+    const params = []
+    
+    if (clientId) {
+      query += ` AND (client_id = $${params.length + 1} OR client_id IS NULL)`
+      params.push(clientId)
+    }
+    
+    if (eventId) {
+      query += ` AND (event_id = $${params.length + 1} OR event_id IS NULL)`
+      params.push(eventId)
+    }
+    
+    query += ` ORDER BY is_default DESC, updated_at DESC`
+
+    const result = await db.query(query, params)
+
+    res.json({
+      success: true,
+      data: result.rows.map(row => ({
+        ...row,
+        measurements: typeof row.measurements === 'string' 
+          ? JSON.parse(row.measurements) 
+          : row.measurements,
+        fields: typeof row.fields === 'string' 
+          ? JSON.parse(row.fields) 
+          : row.fields,
+        printConfig: typeof row.print_config === 'string' 
+          ? JSON.parse(row.print_config) 
+          : row.print_config,
+      }))
+    })
+  } catch (error) {
+    console.error('Error getting ticket templates:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
+// Get single ticket template
+router.get('/ticket-templates/:id', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleGetTicketTemplate(req, res))
+    })
+  }
+  
+  return handleGetTicketTemplate(req, res)
+})
+
+async function handleGetTicketTemplate(req, res) {
+  try {
+    const { id } = req.params
+
+    const result = await db.query(
+      'SELECT * FROM ticket_templates WHERE id = $1',
+      [id]
+    )
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Plantilla no encontrada' })
+    }
+
+    const template = result.rows[0]
+    res.json({
+      success: true,
+      data: {
+        ...template,
+        measurements: typeof template.measurements === 'string' 
+          ? JSON.parse(template.measurements) 
+          : template.measurements,
+        fields: typeof template.fields === 'string' 
+          ? JSON.parse(template.fields) 
+          : template.fields,
+        printConfig: typeof template.print_config === 'string' 
+          ? JSON.parse(template.print_config) 
+          : template.print_config,
+      }
+    })
+  } catch (error) {
+    console.error('Error getting ticket template:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
+// Create or update ticket template
+router.post('/ticket-templates', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleSaveTicketTemplate(req, res))
+    })
+  }
+  
+  return handleSaveTicketTemplate(req, res)
+})
+
+async function handleSaveTicketTemplate(req, res) {
+  try {
+    const {
+      id,
+      name,
+      description,
+      clientId,
+      eventId,
+      measurements,
+      fields,
+      printConfig,
+      isDefault,
+      isActive
+    } = req.body
+
+    // Validate required fields
+    if (!name || !measurements || !fields) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Nombre, medidas y campos son requeridos' 
+      })
+    }
+
+    const userId = req.user?.id || 'system'
+    const now = new Date().toISOString()
+
+    if (id) {
+      // Update existing template
+      const result = await db.query(
+        `UPDATE ticket_templates 
+         SET name = $1, description = $2, client_id = $3, event_id = $4,
+             measurements = $5, fields = $6, print_config = $7,
+             is_default = $8, is_active = $9, updated_at = $10
+         WHERE id = $11
+         RETURNING *`,
+        [
+          name,
+          description || null,
+          clientId || null,
+          eventId || null,
+          JSON.stringify(measurements),
+          JSON.stringify(fields),
+          JSON.stringify(printConfig),
+          isDefault || false,
+          isActive !== undefined ? isActive : true,
+          now,
+          id
+        ]
+      )
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'Plantilla no encontrada' })
+      }
+
+      res.json({
+        success: true,
+        data: {
+          ...result.rows[0],
+          measurements: typeof result.rows[0].measurements === 'string' 
+            ? JSON.parse(result.rows[0].measurements) 
+            : result.rows[0].measurements,
+          fields: typeof result.rows[0].fields === 'string' 
+            ? JSON.parse(result.rows[0].fields) 
+            : result.rows[0].fields,
+          printConfig: typeof result.rows[0].print_config === 'string' 
+            ? JSON.parse(result.rows[0].print_config) 
+            : result.rows[0].print_config,
+        }
+      })
+    } else {
+      // Create new template
+      const newId = `template_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+      
+      const result = await db.query(
+        `INSERT INTO ticket_templates 
+         (id, name, description, client_id, event_id, measurements, fields, print_config,
+          is_default, is_active, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         RETURNING *`,
+        [
+          newId,
+          name,
+          description || null,
+          clientId || null,
+          eventId || null,
+          JSON.stringify(measurements),
+          JSON.stringify(fields),
+          JSON.stringify(printConfig),
+          isDefault || false,
+          isActive !== undefined ? isActive : true,
+          userId,
+          now,
+          now
+        ]
+      )
+
+      res.status(201).json({
+        success: true,
+        data: {
+          ...result.rows[0],
+          measurements: typeof result.rows[0].measurements === 'string' 
+            ? JSON.parse(result.rows[0].measurements) 
+            : result.rows[0].measurements,
+          fields: typeof result.rows[0].fields === 'string' 
+            ? JSON.parse(result.rows[0].fields) 
+            : result.rows[0].fields,
+          printConfig: typeof result.rows[0].print_config === 'string' 
+            ? JSON.parse(result.rows[0].print_config) 
+            : result.rows[0].print_config,
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Error saving ticket template:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
+// Delete ticket template
+router.delete('/ticket-templates/:id', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleDeleteTicketTemplate(req, res))
+    })
+  }
+  
+  return handleDeleteTicketTemplate(req, res)
+})
+
+async function handleDeleteTicketTemplate(req, res) {
+  try {
+    const { id } = req.params
+
+    // Check if template is default
+    const checkResult = await db.query(
+      'SELECT is_default FROM ticket_templates WHERE id = $1',
+      [id]
+    )
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Plantilla no encontrada' })
+    }
+
+    if (checkResult.rows[0].is_default) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No se puede eliminar la plantilla por defecto' 
+      })
+    }
+
+    await db.query('DELETE FROM ticket_templates WHERE id = $1', [id])
+
+    res.json({ success: true, message: 'Plantilla eliminada correctamente' })
+  } catch (error) {
+    console.error('Error deleting ticket template:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
 module.exports = router

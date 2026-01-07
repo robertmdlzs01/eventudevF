@@ -20,6 +20,8 @@ import { useRouter } from "next/navigation"
 import { TicketDetailsModal } from "@/components/ticket-details-modal"
 import { TicketQRModal } from "@/components/ticket-qr-modal"
 import { downloadTicketPDF, resendTicketEmail } from "@/lib/ticket-utils"
+import { useAuth } from "@/hooks/use-auth"
+import { apiClient } from "@/lib/api-client"
 
 interface Ticket {
   id: string
@@ -43,88 +45,50 @@ export default function MisBoletosPage() {
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [showQRModal, setShowQRModal] = useState(false)
   const router = useRouter()
+  const { isAuthenticated, user, token, isLoading } = useAuth()
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem("auth_token")
-      if (!token) {
+      if (isLoading) return
+      if (!isAuthenticated || !user || !token) {
         router.push("/login")
         return
       }
       
       try {
-        // Obtener datos reales del backend
-        const response = await fetch('http://localhost:3002/api/tickets/user/4', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-
-        if (response.ok) {
-          const data = await response.json()
-          if (data.success && data.data) {
-            // Transformar datos del backend al formato esperado
-            const transformedTickets: Ticket[] = data.data.map((ticket: any) => ({
-              id: ticket.ticket_id.toString(),
+        // Obtener datos reales del backend via apiClient
+        const response = await apiClient.getUserTickets(user.id)
+        if (response.success && response.data) {
+          // Backend agrupa por venta; aplanar a tickets individuales
+          const transformedTickets: Ticket[] = response.data.flatMap((sale: any) =>
+            (sale.tickets || []).map((ticket: any) => ({
+              id: ticket.ticket_id?.toString?.() || ticket.id?.toString?.() || `${sale.sale_id}-${ticket.ticket_code}`,
               ticketNumber: ticket.ticket_code,
-              eventName: ticket.event_title,
-              eventDate: ticket.event_date,
-              eventTime: ticket.event_time,
-              venue: ticket.event_venue,
-              ticketType: ticket.ticket_type_name,
-              price: parseFloat(ticket.ticket_price),
-              status: ticket.ticket_status === 'valid' ? 'active' : 'used',
-              purchaseDate: ticket.purchase_date,
+              eventName: sale.event_title,
+              eventDate: sale.event_date,
+              eventTime: sale.event_time,
+              venue: sale.event_venue,
+              ticketType: sale.ticket_type_name,
+              price: Number.parseFloat(sale.ticket_price) || 0,
+              status: (ticket.status || sale.sale_status) === 'valid' ? 'active' : 'used',
+              purchaseDate: sale.purchase_date,
               qrCode: ticket.qr_code || `qr-${ticket.ticket_code}`,
               usedAt: ticket.used_at
             }))
-            setTickets(transformedTickets)
-          }
-        } else {
-          // Fallback a datos mock si falla el backend
-          const mockTickets: Ticket[] = [
-            {
-              id: "1",
-              ticketNumber: "TKT-2024-001",
-              eventName: "Concierto Rock Nacional",
-              eventDate: "2024-12-15",
-              eventTime: "20:00",
-              venue: "Estadio El Campín",
-              ticketType: "General",
-              price: 50000,
-              status: "active",
-              purchaseDate: "2024-11-20",
-              qrCode: "qr-code-1"
-            }
-          ]
-          setTickets(mockTickets)
+          )
+          setTickets(transformedTickets)
+          return
         }
       } catch (error) {
         console.error('Error fetching tickets:', error)
-        // Fallback a datos mock en caso de error
-        const mockTickets: Ticket[] = [
-          {
-            id: "1",
-            ticketNumber: "TKT-2024-001",
-            eventName: "Concierto Rock Nacional",
-            eventDate: "2024-12-15",
-            eventTime: "20:00",
-            venue: "Estadio El Campín",
-            ticketType: "General",
-            price: 50000,
-            status: "active",
-            purchaseDate: "2024-11-20",
-            qrCode: "qr-code-1"
-          }
-        ]
-        setTickets(mockTickets)
+        setTickets([])
       } finally {
         setLoading(false)
       }
     }
 
     checkAuth()
-  }, [router])
+  }, [router, isAuthenticated, user, token, isLoading])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
