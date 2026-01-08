@@ -1769,9 +1769,20 @@ export async function performCheckIn(saleId: string, checkInData: {
   operator: string
   gate?: string
   notes?: string
+  ticketId?: number
+  ticketCode?: string
+  eventId?: number
 }): Promise<boolean> {
   try {
-    const response = await apiClient.performCheckIn(parseInt(saleId), checkInData)
+    // Usar el nuevo formato del método performCheckIn
+    const response = await apiClient.performCheckIn({
+      ticketId: checkInData.ticketId,
+      ticketCode: checkInData.ticketCode,
+      eventId: checkInData.eventId,
+      gate: checkInData.gate || 'Principal',
+      operator_name: checkInData.operator,
+      operator_id: undefined
+    })
     return response.success
   } catch (error) {
     console.error('Error performing check-in:', error)
@@ -2336,7 +2347,10 @@ export async function getAdminTicket(id: string): Promise<AdminTicket | null> {
 // Función para validar una boleta (check-in)
 export async function validateAdminTicket(ticketId: string): Promise<boolean> {
   try {
-    const response = await apiClient.validateTicket(parseInt(ticketId))
+    // Usar el nuevo formato del método validateTicket
+    const response = await apiClient.validateTicket({
+      ticketId: parseInt(ticketId)
+    })
     return response.success
   } catch (error) {
     console.error('Error validating ticket:', error)

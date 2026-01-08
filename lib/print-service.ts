@@ -1,6 +1,15 @@
 // Servicio de impresión basado en el sistema QZ del WordPress
 // Integración con QZ Tray para impresión de tickets
 // Actualizado para soportar plantillas personalizables
+//
+// IMPORTANTE: Los drivers de impresora NO están incluidos en este proyecto.
+// Los drivers deben instalarse en el equipo donde se ejecutará la impresión.
+// Ver documentación completa en: docs/DRIVERS_IMPRESION.md
+//
+// Requisitos:
+// 1. QZ Tray instalado y ejecutándose (https://qz.io/download/)
+// 2. Drivers de impresora instalados en el sistema operativo
+// 3. Al menos una impresora configurada en el sistema
 
 import type { TicketTemplate, TicketData } from './ticket-templates'
 import { ticketTemplateService } from './ticket-template-service'

@@ -13,6 +13,7 @@ import { Search, Download, CreditCard, DollarSign, AlertCircle } from "lucide-re
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api-client"
 
 interface Payment {
   id: string
@@ -25,84 +26,119 @@ interface Payment {
   eventTitle: string
   createdAt: string
   processedAt?: string
+  quantity?: number
 }
 
-const mockPayments: Payment[] = [
-  {
-    id: "1",
-    transactionId: "TXN-2024-001",
-    amount: 150.00,
-    status: 'completed',
-    paymentMethod: 'credit_card',
-    customerName: 'Juan Pérez',
-    customerEmail: 'juan@example.com',
-    eventTitle: 'Concierto de Rock Nacional',
-    createdAt: '2024-02-15T19:15:00',
-    processedAt: '2024-02-15T19:16:00'
-  },
-  {
-    id: "2",
-    transactionId: "TXN-2024-002",
-    amount: 75.50,
-    status: 'pending',
-    paymentMethod: 'paypal',
-    customerName: 'Ana Martínez',
-    customerEmail: 'ana@example.com',
-    eventTitle: 'Festival de Jazz',
-    createdAt: '2024-02-15T18:30:00'
-  },
-  {
-    id: "3",
-    transactionId: "TXN-2024-003",
-    amount: 200.00,
-    status: 'failed',
-    paymentMethod: 'credit_card',
-    customerName: 'Pedro Rodríguez',
-    customerEmail: 'pedro@example.com',
-    eventTitle: 'Obra de Teatro Clásico',
-    createdAt: '2024-02-15T17:45:00'
-  }
-]
-
 export default function AdminPagosClient() {
-  const [payments, setPayments] = useState<Payment[]>(mockPayments)
-  const [filteredPayments, setFilteredPayments] = useState<Payment[]>(mockPayments)
+  const [payments, setPayments] = useState<Payment[]>([])
+  const [filteredPayments, setFilteredPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [methodFilter, setMethodFilter] = useState("all")
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null)
   const [isPaymentDetailOpen, setIsPaymentDetailOpen] = useState(false)
+  const [paymentStats, setPaymentStats] = useState({
+    total: 0,
+    completed: 0,
+    pending: 0,
+    failed: 0,
+    refunded: 0,
+    totalRevenue: 0,
+    pendingAmount: 0
+  })
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
   const { toast } = useToast()
 
+  // Cargar pagos del backend
+  useEffect(() => {
+    loadPayments()
+  }, [page, statusFilter, methodFilter, searchTerm])
+
+  // Filtrar pagos localmente (además del filtrado del backend)
   useEffect(() => {
     let filtered = payments
 
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (payment) =>
-          payment.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          payment.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          payment.eventTitle.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          payment.transactionId.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((payment) => payment.status === statusFilter)
-    }
-
-    if (methodFilter !== "all") {
-      filtered = filtered.filter((payment) => payment.paymentMethod === methodFilter)
-    }
-
+    // El backend ya filtra por status y method, pero podemos aplicar filtros adicionales si es necesario
     setFilteredPayments(filtered)
-  }, [payments, searchTerm, statusFilter, methodFilter])
+  }, [payments])
+
+  const loadPayments = async () => {
+    setLoading(true)
+    try {
+      const response = await apiClient.getAllPayments({
+        page,
+        limit: 50,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+        payment_method: methodFilter !== "all" ? methodFilter : undefined,
+        search: searchTerm || undefined
+      })
+
+      if (response.success && response.data) {
+        setPayments(response.data.payments || [])
+        setFilteredPayments(response.data.payments || [])
+        
+        if (response.data.pagination) {
+          setTotalPages(response.data.pagination.pages || 1)
+        }
+
+        if (response.data.stats) {
+          setPaymentStats(response.data.stats)
+        }
+      } else {
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los pagos",
+          variant: "destructive"
+        })
+      }
+    } catch (error) {
+      console.error('Error cargando pagos:', error)
+      toast({
+        title: "Error",
+        description: "Error al cargar los pagos. Intenta nuevamente.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
 
   // Funciones de gestión de pagos
-  const handleViewPayment = (payment: Payment) => {
-    setSelectedPayment(payment)
-    setIsPaymentDetailOpen(true)
+  const handleViewPayment = async (payment: Payment) => {
+    setLoading(true)
+    try {
+      const response = await apiClient.getPaymentDetails(parseInt(payment.id))
+      if (response.success && response.data) {
+        const paymentDetail = response.data
+        setSelectedPayment({
+          id: paymentDetail.id,
+          transactionId: paymentDetail.transactionId,
+          amount: paymentDetail.amount,
+          status: paymentDetail.status,
+          paymentMethod: paymentDetail.paymentMethod,
+          customerName: paymentDetail.customerName,
+          customerEmail: paymentDetail.customerEmail,
+          eventTitle: paymentDetail.eventTitle,
+          createdAt: paymentDetail.createdAt,
+          processedAt: paymentDetail.updatedAt,
+          quantity: paymentDetail.quantity
+        })
+        setIsPaymentDetailOpen(true)
+      } else {
+        // Fallback a datos locales
+        setSelectedPayment(payment)
+        setIsPaymentDetailOpen(true)
+      }
+    } catch (error) {
+      console.error('Error cargando detalles del pago:', error)
+      // Fallback a datos locales
+      setSelectedPayment(payment)
+      setIsPaymentDetailOpen(true)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleProcessPayment = async (paymentId: string) => {
@@ -148,11 +184,11 @@ export default function AdminPagosClient() {
     }
   }
 
-  const totalRevenue = filteredPayments
+  const totalRevenue = paymentStats.totalRevenue || filteredPayments
     .filter(p => p.status === 'completed')
     .reduce((sum, payment) => sum + payment.amount, 0)
   
-  const pendingAmount = filteredPayments
+  const pendingAmount = paymentStats.pendingAmount || filteredPayments
     .filter(p => p.status === 'pending')
     .reduce((sum, payment) => sum + payment.amount, 0)
 
@@ -187,12 +223,15 @@ export default function AdminPagosClient() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 bg-clip-text text-transparent">
-          Gestión de Pagos
-        </h1>
-        <Button variant="outline" size="sm" onClick={exportPayments} disabled>
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 bg-clip-text text-transparent">
+            Gestión de Pagos
+          </h1>
+          <p className="text-gray-600 mt-1">Administra y monitorea todas las transacciones de pago</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={exportPayments}>
           <Download className="mr-2 h-4 w-4" />
-          Exportar (Desactivado)
+          Exportar
         </Button>
       </div>
 
@@ -222,7 +261,7 @@ export default function AdminPagosClient() {
             <CardTitle className="text-sm font-medium">Transacciones</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filteredPayments.length}</div>
+            <div className="text-2xl font-bold">{paymentStats.total || filteredPayments.length}</div>
             <p className="text-xs text-muted-foreground">Total de pagos</p>
           </CardContent>
         </Card>
@@ -232,9 +271,11 @@ export default function AdminPagosClient() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {filteredPayments.length > 0 
-                ? Math.round((filteredPayments.filter(p => p.status === 'completed').length / filteredPayments.length) * 100)
-                : 0}%
+              {paymentStats.total > 0 
+                ? Math.round((paymentStats.completed / paymentStats.total) * 100)
+                : filteredPayments.length > 0 
+                  ? Math.round((filteredPayments.filter(p => p.status === 'completed').length / filteredPayments.length) * 100)
+                  : 0}%
             </div>
             <p className="text-xs text-muted-foreground">Pagos exitosos</p>
           </CardContent>
@@ -300,21 +341,31 @@ export default function AdminPagosClient() {
           <CardTitle>Transacciones</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>ID Transacción</TableHead>
-                <TableHead>Cliente</TableHead>
-                <TableHead>Evento</TableHead>
-                <TableHead>Monto</TableHead>
-                <TableHead>Método</TableHead>
-                <TableHead>Estado</TableHead>
-                <TableHead>Fecha</TableHead>
-                <TableHead>Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredPayments.map((payment) => (
+          {loading && filteredPayments.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              Cargando pagos...
+            </div>
+          ) : filteredPayments.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              No se encontraron pagos
+            </div>
+          ) : (
+            <>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ID Transacción</TableHead>
+                    <TableHead>Cliente</TableHead>
+                    <TableHead>Evento</TableHead>
+                    <TableHead>Monto</TableHead>
+                    <TableHead>Método</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Acciones</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredPayments.map((payment) => (
                 <TableRow key={payment.id}>
                   <TableCell className="font-mono text-sm">
                     {payment.transactionId}
@@ -372,10 +423,38 @@ export default function AdminPagosClient() {
                       )}
                     </div>
                   </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {/* Paginación */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <div className="text-sm text-muted-foreground">
+                  Página {page} de {totalPages}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1 || loading}
+                  >
+                    Anterior
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages || loading}
+                  >
+                    Siguiente
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+          )}
         </CardContent>
       </Card>
 

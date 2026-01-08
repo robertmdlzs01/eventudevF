@@ -432,12 +432,6 @@ export class ApiClient {
     })
   }
 
-  async performCheckIn(saleId: number, checkInData: any): Promise<ApiResponse<any>> {
-    return this.request(`/admin/sales/${saleId}/checkin`, {
-      method: "POST",
-      body: JSON.stringify(checkInData),
-    })
-  }
 
   async getAdminPayments(params?: any): Promise<ApiResponse<any>> {
     const queryParams = params ? `?${new URLSearchParams(params).toString()}` : ""
@@ -670,11 +664,6 @@ export class ApiClient {
     })
   }
 
-  async validateTicket(id: number): Promise<ApiResponse<any>> {
-    return this.request(`/admin/tickets/${id}/validate`, {
-      method: "POST",
-    })
-  }
 
   async resendTicket(id: number): Promise<ApiResponse<any>> {
     return this.request(`/admin/tickets/${id}/resend`, {
@@ -1560,16 +1549,6 @@ export class ApiClient {
     return this.request(`/payments/status/${transactionId}`)
   }
 
-  // Obtener historial de pagos del usuario
-  async getPaymentHistory(params?: { page?: number; limit?: number }): Promise<ApiResponse<any>> {
-    const queryParams = new URLSearchParams()
-    if (params?.page) queryParams.append('page', params.page.toString())
-    if (params?.limit) queryParams.append('limit', params.limit.toString())
-    
-    const endpoint = `/payments/history${queryParams.toString() ? `?${queryParams.toString()}` : ''}`
-    return this.request(endpoint)
-  }
-
   // Verificar disponibilidad de boletos antes del pago
   async checkTicketAvailability(data: {
     eventId: number
@@ -1634,6 +1613,263 @@ export class ApiClient {
     return this.request('/sales-points/direct-sale', {
       method: 'POST',
       body: JSON.stringify(data)
+    })
+  }
+
+  // ===== MÉTODOS DE POS (PUNTO DE VENTA) =====
+
+  // Obtener todas las cajas registradoras
+  async getPOSRegisters(): Promise<ApiResponse<any>> {
+    return this.request('/pos/registers')
+  }
+
+  // Crear nueva caja registradora
+  async createPOSRegister(data: { name: string; location?: string }): Promise<ApiResponse<any>> {
+    return this.request('/pos/registers', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Actualizar caja registradora
+  async updatePOSRegister(id: number, data: { name?: string; location?: string; is_active?: boolean }): Promise<ApiResponse<any>> {
+    return this.request(`/pos/registers/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Eliminar caja registradora
+  async deletePOSRegister(id: number): Promise<ApiResponse<any>> {
+    return this.request(`/pos/registers/${id}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // Abrir sesión de caja
+  async openPOSSession(registerId: number, openingAmount?: number): Promise<ApiResponse<any>> {
+    return this.request('/pos/sessions/open', {
+      method: 'POST',
+      body: JSON.stringify({ register_id: registerId, opening_amount: openingAmount || 0 })
+    })
+  }
+
+  // Cerrar sesión de caja
+  async closePOSSession(sessionId: number, closingAmount: number): Promise<ApiResponse<any>> {
+    return this.request(`/pos/sessions/${sessionId}/close`, {
+      method: 'POST',
+      body: JSON.stringify({ closing_amount: closingAmount })
+    })
+  }
+
+  // Obtener sesiones activas
+  async getActivePOSSessions(): Promise<ApiResponse<any>> {
+    return this.request('/pos/sessions/active')
+  }
+
+  // Crear orden POS
+  async createPOSOrder(data: {
+    register_id: number
+    session_id: number
+    customer_name: string
+    customer_email?: string
+    customer_phone?: string
+    items: Array<{
+      product_id?: number
+      product_name: string
+      product_sku?: string
+      quantity: number
+      unit_price: number
+    }>
+    payment_method: string
+  }): Promise<ApiResponse<any>> {
+    return this.request('/pos/orders', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Obtener órdenes por sesión
+  async getPOSOrdersBySession(sessionId: number): Promise<ApiResponse<any>> {
+    return this.request(`/pos/orders/session/${sessionId}`)
+  }
+
+  // Obtener detalles de orden
+  async getPOSOrder(orderId: number): Promise<ApiResponse<any>> {
+    return this.request(`/pos/orders/${orderId}`)
+  }
+
+  // ===== MÉTODOS DE CHECK-IN =====
+
+  // Validar ticket por código o QR
+  async validateTicket(data: { ticketCode?: string; ticketId?: number; eventId?: number; gate?: string }): Promise<ApiResponse<any>> {
+    return this.request('/checkin/validate', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Registrar check-in
+  async performCheckIn(data: {
+    ticketId?: number
+    ticketCode?: string
+    eventId?: number
+    gate?: string
+    operator_name?: string
+    operator_id?: number
+  }): Promise<ApiResponse<any>> {
+    return this.request('/checkin', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Obtener check-ins por evento
+  async getEventCheckIns(eventId: number, params?: {
+    limit?: number
+    offset?: number
+    gate?: string
+    startDate?: string
+    endDate?: string
+  }): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, String(value))
+        }
+      })
+    }
+    const queryString = queryParams.toString()
+    return this.request(`/checkin/event/${eventId}${queryString ? `?${queryString}` : ''}`)
+  }
+
+  // Obtener estadísticas de check-in por evento
+  async getEventCheckInStats(eventId: number): Promise<ApiResponse<any>> {
+    return this.request(`/checkin/event/${eventId}/stats`)
+  }
+
+  // Check-in masivo
+  async performBulkCheckIn(data: {
+    saleId?: number
+    ticketIds?: number[]
+    eventId?: number
+    gate?: string
+    operator_name?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request('/checkin/bulk', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // ===== MÉTODOS DE PAGOS =====
+
+  // Obtener todos los pagos (admin)
+  async getAllPayments(params?: {
+    page?: number
+    limit?: number
+    status?: string
+    payment_method?: string
+    search?: string
+    startDate?: string
+    endDate?: string
+  }): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, String(value))
+        }
+      })
+    }
+    const queryString = queryParams.toString()
+    return this.request(`/payments${queryString ? `?${queryString}` : ''}`)
+  }
+
+  // Obtener detalles de un pago
+  async getPaymentDetails(paymentId: number): Promise<ApiResponse<any>> {
+    return this.request(`/payments/${paymentId}`)
+  }
+
+  // Obtener historial de pagos del usuario
+  async getPaymentHistory(params?: {
+    page?: number
+    limit?: number
+  }): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, String(value))
+        }
+      })
+    }
+    const queryString = queryParams.toString()
+    return this.request(`/payments/history${queryString ? `?${queryString}` : ''}`)
+  }
+
+  // ===== MÉTODOS DE ROLES Y PERMISOS =====
+
+  // Obtener todos los roles
+  async getRoles(): Promise<ApiResponse<any>> {
+    return this.request('/user-roles/roles')
+  }
+
+  // Crear nuevo rol
+  async createRole(data: {
+    name: string
+    display_name: string
+    description?: string
+    level?: number
+    color?: string
+    icon?: string
+    permissions?: string[]
+  }): Promise<ApiResponse<any>> {
+    return this.request('/user-roles/roles', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Actualizar rol
+  async updateRole(roleId: string, data: {
+    display_name?: string
+    description?: string
+    level?: number
+    color?: string
+    icon?: string
+    permissions?: string[]
+    is_active?: boolean
+  }): Promise<ApiResponse<any>> {
+    return this.request(`/user-roles/roles/${roleId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Eliminar rol
+  async deleteRole(roleId: string): Promise<ApiResponse<any>> {
+    return this.request(`/user-roles/roles/${roleId}`, {
+      method: 'DELETE'
+    })
+  }
+
+  // Obtener todos los permisos disponibles
+  async getPermissions(): Promise<ApiResponse<any>> {
+    return this.request('/user-roles/permissions')
+  }
+
+  // Obtener permisos de un usuario
+  async getUserPermissions(userId: number): Promise<ApiResponse<any>> {
+    return this.request(`/user-roles/user/${userId}/permissions`)
+  }
+
+  // Asignar rol a un usuario
+  async assignUserRole(userId: number, role: string): Promise<ApiResponse<any>> {
+    return this.request(`/user-roles/user/${userId}/role`, {
+      method: 'PUT',
+      body: JSON.stringify({ role })
     })
   }
 
@@ -1724,73 +1960,6 @@ export class ApiClient {
     return this.request(`/organizers/${organizerId}/sales/realtime`, {
       method: "GET",
     })
-  }
-
-  // ===== MÉTODOS DEL SISTEMA POS =====
-
-  // Obtener cajas registradoras
-  async getPOSRegisters(): Promise<ApiResponse<any>> {
-    return this.request('/pos/registers')
-  }
-
-  // Crear nueva caja registradora
-  async createPOSRegister(data: any): Promise<ApiResponse<any>> {
-    return this.request('/pos/registers', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    })
-  }
-
-  // Actualizar caja registradora
-  async updatePOSRegister(id: number, data: any): Promise<ApiResponse<any>> {
-    return this.request(`/pos/registers/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data)
-    })
-  }
-
-  // Abrir sesión de caja
-  async openPOSSession(registerId: number, openingAmount: number = 0): Promise<ApiResponse<any>> {
-    return this.request('/pos/sessions/open', {
-      method: 'POST',
-      body: JSON.stringify({
-        register_id: registerId,
-        opening_amount: openingAmount
-      })
-    })
-  }
-
-  // Cerrar sesión de caja
-  async closePOSSession(sessionId: number, closingAmount: number): Promise<ApiResponse<any>> {
-    return this.request(`/pos/sessions/${sessionId}/close`, {
-      method: 'POST',
-      body: JSON.stringify({
-        closing_amount: closingAmount
-      })
-    })
-  }
-
-  // Obtener sesiones activas
-  async getActivePOSessions(): Promise<ApiResponse<any>> {
-    return this.request('/pos/sessions/active')
-  }
-
-  // Crear nueva orden POS
-  async createPOSOrder(data: any): Promise<ApiResponse<any>> {
-    return this.request('/pos/orders', {
-      method: 'POST',
-      body: JSON.stringify(data)
-    })
-  }
-
-  // Obtener órdenes por sesión
-  async getPOSOrdersBySession(sessionId: number): Promise<ApiResponse<any>> {
-    return this.request(`/pos/orders/session/${sessionId}`)
-  }
-
-  // Obtener detalles de orden
-  async getPOSOrderDetails(orderId: number): Promise<ApiResponse<any>> {
-    return this.request(`/pos/orders/${orderId}`)
   }
 
 }

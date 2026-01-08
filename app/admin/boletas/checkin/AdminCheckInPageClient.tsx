@@ -18,6 +18,8 @@ import {
 import { Label } from "@/components/ui/label"
 import { Plus, Search, QrCode, UserCheck, Clock, AlertCircle, CheckCircle, Users, Download, Scan, Smartphone, Camera } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api-client"
+import { useAuth } from "@/hooks/use-auth"
 
 interface CheckInRecord {
   id: string
@@ -31,45 +33,19 @@ interface CheckInRecord {
   operator: string
 }
 
-const mockCheckInRecords: CheckInRecord[] = [
-  {
-    id: "1",
-    ticketNumber: "VT-2024-001",
-    eventName: "Concierto de Rock Nacional",
-    customerName: "Juan Pérez",
-    ticketType: "General",
-    checkInTime: "2024-02-15T19:15:00",
-    gate: "Puerta A",
-    status: "checked-in",
-    operator: "María González",
-  },
-  {
-    id: "2",
-    ticketNumber: "PT-2024-002",
-    eventName: "Festival de Jazz",
-    customerName: "Ana Martínez",
-    ticketType: "VIP",
-    checkInTime: "2024-01-20T18:30:00",
-    gate: "Puerta VIP",
-    status: "checked-in",
-    operator: "Carlos López",
-  },
-  {
-    id: "3",
-    ticketNumber: "VT-2024-003",
-    eventName: "Obra de Teatro Clásico",
-    customerName: "Pedro Rodríguez",
-    ticketType: "Palco",
-    checkInTime: "2024-02-10T20:00:00",
-    gate: "Puerta B",
-    status: "duplicate",
-    operator: "Laura Sánchez",
-  },
-]
+interface Event {
+  id: number
+  title: string
+  date: string
+}
 
 export default function AdminCheckInPageClient() {
-  const [checkInRecords, setCheckInRecords] = useState<CheckInRecord[]>(mockCheckInRecords)
-  const [filteredRecords, setFilteredRecords] = useState<CheckInRecord[]>(mockCheckInRecords)
+  const { user } = useAuth()
+  const [checkInRecords, setCheckInRecords] = useState<CheckInRecord[]>([])
+  const [filteredRecords, setFilteredRecords] = useState<CheckInRecord[]>([])
+  const [events, setEvents] = useState<Event[]>([])
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
+  const [checkInStats, setCheckInStats] = useState<any>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [eventFilter, setEventFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -78,11 +54,103 @@ export default function AdminCheckInPageClient() {
   const [qrScannerActive, setQrScannerActive] = useState(false)
   const [manualCheckInData, setManualCheckInData] = useState({
     ticketNumber: "",
-    event: "",
+    eventId: "",
     gate: "",
-    operator: "Admin"
+    operator: user?.name || "Admin"
   })
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingRecords, setIsLoadingRecords] = useState(false)
+
+  // Cargar eventos disponibles
+  useEffect(() => {
+    const loadEvents = async () => {
+      try {
+        const response = await apiClient.getEvents({ status: 'active' })
+        if (response.success && response.data) {
+          setEvents(response.data.map((e: any) => ({
+            id: e.id,
+            title: e.title || e.name,
+            date: e.date
+          })))
+        }
+      } catch (error) {
+        console.error('Error cargando eventos:', error)
+      }
+    }
+    loadEvents()
+  }, [])
+
+  // Cargar check-ins cuando se selecciona un evento
+  useEffect(() => {
+    if (selectedEventId) {
+      loadCheckIns(selectedEventId)
+      loadStats(selectedEventId)
+    } else {
+      // Si no hay evento seleccionado, cargar todos los check-ins recientes
+      loadRecentCheckIns()
+    }
+  }, [selectedEventId])
+
+  // Cargar check-ins de un evento
+  const loadCheckIns = async (eventId: number) => {
+    setIsLoadingRecords(true)
+    try {
+      const response = await apiClient.getEventCheckIns(eventId, {
+        limit: 100,
+        offset: 0
+      })
+      if (response.success && response.data) {
+        const transformedRecords: CheckInRecord[] = response.data.map((record: any) => ({
+          id: record.id.toString(),
+          ticketNumber: record.ticketNumber,
+          eventName: record.eventName,
+          customerName: record.customerName,
+          ticketType: record.ticketType,
+          checkInTime: record.checkInTime,
+          gate: record.gate,
+          status: "checked-in",
+          operator: record.operator
+        }))
+        setCheckInRecords(transformedRecords)
+      }
+    } catch (error) {
+      console.error('Error cargando check-ins:', error)
+      toast({
+        title: "Error",
+        description: "No se pudieron cargar los registros de check-in",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoadingRecords(false)
+    }
+  }
+
+  // Cargar check-ins recientes (de todos los eventos)
+  const loadRecentCheckIns = async () => {
+    setIsLoadingRecords(true)
+    try {
+      // Por ahora, cargar del primer evento activo como fallback
+      if (events.length > 0) {
+        await loadCheckIns(events[0].id)
+      }
+    } catch (error) {
+      console.error('Error cargando check-ins recientes:', error)
+    } finally {
+      setIsLoadingRecords(false)
+    }
+  }
+
+  // Cargar estadísticas
+  const loadStats = async (eventId: number) => {
+    try {
+      const response = await apiClient.getEventCheckInStats(eventId)
+      if (response.success && response.data) {
+        setCheckInStats(response.data)
+      }
+    } catch (error) {
+      console.error('Error cargando estadísticas:', error)
+    }
+  }
 
   // Filter records
   useEffect(() => {
@@ -163,8 +231,63 @@ export default function AdminCheckInPageClient() {
     }
   }
 
+  // Manejar escaneo QR (cuando se detecta un código)
+  const handleQRCodeScanned = async (qrCode: string) => {
+    setIsLoading(true)
+    try {
+      // Validar ticket primero
+      const validateResponse = await apiClient.validateTicket({
+        ticketCode: qrCode,
+        eventId: selectedEventId || undefined
+      })
+
+      if (!validateResponse.success) {
+        toast({
+          title: "Ticket inválido",
+          description: validateResponse.message || "No se pudo validar el ticket",
+          variant: "destructive"
+        })
+        return
+      }
+
+      const ticket = validateResponse.data?.ticket
+      
+      // Registrar check-in
+      const checkInResponse = await apiClient.performCheckIn({
+        ticketCode: qrCode,
+        eventId: ticket.event_id,
+        gate: "Principal",
+        operator_name: user?.name || "Admin",
+        operator_id: user?.id
+      })
+
+      if (checkInResponse.success) {
+        toast({
+          title: "Check-in exitoso",
+          description: `Ticket ${ticket.ticket_code} registrado correctamente`,
+        })
+        // Recargar check-ins
+        if (ticket.event_id) {
+          await loadCheckIns(ticket.event_id)
+          await loadStats(ticket.event_id)
+        }
+      } else {
+        throw new Error(checkInResponse.message || "Error al registrar check-in")
+      }
+    } catch (error: any) {
+      console.error('Error procesando QR:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Error al procesar el código QR",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleManualCheckIn = async () => {
-    if (!manualCheckInData.ticketNumber || !manualCheckInData.event || !manualCheckInData.gate) {
+    if (!manualCheckInData.ticketNumber || !manualCheckInData.eventId || !manualCheckInData.gate) {
       toast({
         title: "Error",
         description: "Por favor completa todos los campos",
@@ -175,45 +298,72 @@ export default function AdminCheckInPageClient() {
 
     setIsLoading(true)
     try {
-      // Simular validación de boleto
-      const existingRecord = checkInRecords.find(
-        record => record.ticketNumber === manualCheckInData.ticketNumber
-      )
+      const eventIdNum = parseInt(manualCheckInData.eventId)
+      
+      // Validar ticket primero
+      const validateResponse = await apiClient.validateTicket({
+        ticketCode: manualCheckInData.ticketNumber,
+        eventId: eventIdNum
+      })
 
-      if (existingRecord) {
-        toast({
-          title: "Boleto ya registrado",
-          description: "Este boleto ya fue registrado anteriormente",
-          variant: "destructive"
-        })
+      if (!validateResponse.success) {
+        // El código de error puede estar en response.data o response.message
+        const errorCode = (validateResponse as any).code || (validateResponse.data as any)?.code
+        const errorMessage = validateResponse.message || (validateResponse.data as any)?.message || "No se pudo validar el ticket"
+        
+        if (errorCode === "TICKET_ALREADY_USED") {
+          toast({
+            title: "Ticket ya utilizado",
+            description: errorMessage,
+            variant: "destructive"
+          })
+        } else {
+          toast({
+            title: "Ticket inválido",
+            description: errorMessage,
+            variant: "destructive"
+          })
+        }
         return
       }
 
-      // Crear nuevo registro de check-in
-      const newRecord: CheckInRecord = {
-        id: Date.now().toString(),
-        ticketNumber: manualCheckInData.ticketNumber,
-        eventName: manualCheckInData.event,
-        customerName: "Cliente Verificado", // En producción vendría de la base de datos
-        ticketType: "General",
-        checkInTime: new Date().toISOString(),
+      const ticket = validateResponse.data?.ticket
+
+      // Registrar check-in
+      const checkInResponse = await apiClient.performCheckIn({
+        ticketCode: manualCheckInData.ticketNumber,
+        eventId: eventIdNum,
         gate: manualCheckInData.gate,
-        status: "checked-in",
-        operator: manualCheckInData.operator,
-      }
-
-      setCheckInRecords(prev => [newRecord, ...prev])
-      setManualCheckInData({ ticketNumber: "", event: "", gate: "", operator: "Admin" })
-      setIsManualCheckInOpen(false)
-
-      toast({
-        title: "Check-in exitoso",
-        description: `Boleto ${manualCheckInData.ticketNumber} registrado correctamente`,
+        operator_name: manualCheckInData.operator,
+        operator_id: user?.id
       })
-    } catch (error) {
+
+      if (checkInResponse.success) {
+        toast({
+          title: "Check-in exitoso",
+          description: `Ticket ${ticket.ticket_code} registrado correctamente`,
+        })
+        
+        // Limpiar formulario
+        setManualCheckInData({
+          ticketNumber: "",
+          eventId: "",
+          gate: "",
+          operator: user?.name || "Admin"
+        })
+        setIsManualCheckInOpen(false)
+
+        // Recargar check-ins y estadísticas
+        await loadCheckIns(eventIdNum)
+        await loadStats(eventIdNum)
+      } else {
+        throw new Error(checkInResponse.message || "Error al registrar check-in")
+      }
+    } catch (error: any) {
+      console.error('Error en check-in manual:', error)
       toast({
         title: "Error",
-        description: "Error al registrar el check-in",
+        description: error.message || "Error al registrar el check-in",
         variant: "destructive"
       })
     } finally {
@@ -254,6 +404,18 @@ export default function AdminCheckInPageClient() {
   const uniqueEvents = [...new Set(checkInRecords.map((record) => record.eventName))]
   const uniqueGates = [...new Set(checkInRecords.map((record) => record.gate))]
 
+  // Seleccionar evento
+  const handleEventSelect = (eventId: string) => {
+    if (eventId === "all") {
+      setSelectedEventId(null)
+      setEventFilter("all")
+    } else {
+      const eventIdNum = parseInt(eventId)
+      setSelectedEventId(eventIdNum)
+      setEventFilter(events.find(e => e.id === eventIdNum)?.title || "all")
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -293,15 +455,15 @@ export default function AdminCheckInPageClient() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="event">Evento</Label>
-                  <Select value={manualCheckInData.event} onValueChange={(value) => setManualCheckInData(prev => ({ ...prev, event: value }))}>
+                  <Label htmlFor="event">Evento *</Label>
+                  <Select value={manualCheckInData.eventId} onValueChange={(value) => setManualCheckInData(prev => ({ ...prev, eventId: value }))}>
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar evento" />
                     </SelectTrigger>
                     <SelectContent>
-                      {uniqueEvents.map((event) => (
-                        <SelectItem key={event} value={event}>
-                          {event}
+                      {events.map((event) => (
+                        <SelectItem key={event.id} value={event.id.toString()}>
+                          {event.title} - {new Date(event.date).toLocaleDateString()}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -338,18 +500,68 @@ export default function AdminCheckInPageClient() {
       {qrScannerActive && (
         <Card className="border-blue-200 bg-blue-50">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-3">
-              <QrCode className="h-6 w-6 text-blue-600 animate-pulse" />
-              <div>
-                <h3 className="font-semibold text-blue-900">Escáner QR Activo</h3>
-                <p className="text-sm text-blue-700">
-                  Escanea el código QR de la boleta para realizar el check-in automático
-                </p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <QrCode className="h-6 w-6 text-blue-600 animate-pulse" />
+                <div>
+                  <h3 className="font-semibold text-blue-900">Escáner QR Activo</h3>
+                  <p className="text-sm text-blue-700">
+                    Ingresa manualmente el código del ticket o escanea el QR
+                  </p>
+                </div>
               </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ingresa código de ticket o QR"
+                  className="w-64"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter' && e.currentTarget.value) {
+                      handleQRCodeScanned(e.currentTarget.value)
+                      e.currentTarget.value = ''
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setQrScannerActive(false)}
+                >
+                  Detener
+                </Button>
+              </div>
+            </div>
+            <div className="mt-4 p-4 bg-white rounded-lg border-2 border-dashed border-blue-300 text-center">
+              <Camera className="h-12 w-12 mx-auto text-blue-500 mb-2" />
+              <p className="text-sm text-gray-600">
+                Nota: Para escaneo con cámara, se requiere implementación adicional con biblioteca de escáner QR
+              </p>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Event Selector */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Seleccionar Evento</CardTitle>
+          <CardDescription>Elige el evento para ver sus check-ins</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Select value={selectedEventId?.toString() || "all"} onValueChange={handleEventSelect}>
+            <SelectTrigger className="w-full max-w-md">
+              <SelectValue placeholder="Todos los eventos" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los eventos</SelectItem>
+              {events.map((event) => (
+                <SelectItem key={event.id} value={event.id.toString()}>
+                  {event.title} - {new Date(event.date).toLocaleDateString()}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -359,7 +571,14 @@ export default function AdminCheckInPageClient() {
             <UserCheck className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{checkInRecords.length}</div>
+            <div className="text-2xl font-bold">
+              {checkInStats?.total_checked_in || checkInRecords.length}
+            </div>
+            {checkInStats && (
+              <p className="text-xs text-muted-foreground mt-1">
+                de {checkInStats.total_tickets_sold} boletos vendidos
+              </p>
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -368,25 +587,31 @@ export default function AdminCheckInPageClient() {
             <CheckCircle className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{checkInRecords.filter((r) => r.status === "checked-in").length}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {checkInRecords.filter((r) => r.status === "checked-in").length}
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Duplicados</CardTitle>
-            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Pendientes</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{checkInRecords.filter((r) => r.status === "duplicate").length}</div>
+            <div className="text-2xl font-bold text-yellow-600">
+              {checkInStats?.total_pending || 0}
+            </div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Eventos Activos</CardTitle>
+            <CardTitle className="text-sm font-medium">Tasa de Check-in</CardTitle>
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{uniqueEvents.length}</div>
+            <div className="text-2xl font-bold">
+              {checkInStats?.check_in_rate || 0}%
+            </div>
           </CardContent>
         </Card>
       </div>

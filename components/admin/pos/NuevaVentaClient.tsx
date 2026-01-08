@@ -21,6 +21,8 @@ import {
   X
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
+import { apiClient } from '@/lib/api-client'
+import { toast } from '@/hooks/use-toast'
 
 interface Event {
   id: string
@@ -69,77 +71,61 @@ export function NuevaVentaClient() {
   // Cargar eventos disponibles
   const loadEvents = async () => {
     try {
-      // Simular llamada a API
-      const mockEvents: Event[] = [
-        {
-          id: '1',
-          name: 'Concierto Rock - 15 Dic 2024',
-          date: '2024-12-15',
-          location: 'Teatro Nacional',
-          image: '/images/event1.jpg'
-        },
-        {
-          id: '2',
-          name: 'Festival de Jazz - 20 Dic 2024',
-          date: '2024-12-20',
-          location: 'Auditorio Mayor',
-          image: '/images/event2.jpg'
-        },
-        {
-          id: '3',
-          name: 'Teatro Clásico - 25 Dic 2024',
-          date: '2024-12-25',
-          location: 'Teatro Colón',
-          image: '/images/event3.jpg'
-        }
-      ]
-      setEvents(mockEvents)
+      const response = await apiClient.getEvents({ status: 'active' })
+      if (response.success && response.data) {
+        const transformedEvents: Event[] = response.data.map((event: any) => ({
+          id: event.id.toString(),
+          name: event.title || event.name,
+          date: event.date,
+          location: event.venue || event.location,
+          image: event.image_url || '/images/placeholder.jpg'
+        }))
+        setEvents(transformedEvents)
+      } else {
+        // Fallback a datos mock si falla la API
+        console.warn('No se pudieron cargar eventos, usando datos mock')
+        const mockEvents: Event[] = []
+        setEvents(mockEvents)
+      }
     } catch (error) {
       console.error('Error cargando eventos:', error)
+      // Fallback a datos mock en caso de error
+      const mockEvents: Event[] = []
+      setEvents(mockEvents)
     }
   }
 
   // Cargar tipos de tickets
   const loadTicketTypes = async (eventId: string) => {
     try {
-      // Simular llamada a API
-      const mockTicketTypes: TicketType[] = [
-        {
-          id: '1',
-          name: 'VIP',
-          description: 'Asientos preferenciales',
-          price: 150000,
-          available: 50,
+      const eventIdNum = parseInt(eventId)
+      if (isNaN(eventIdNum)) {
+        console.error('Invalid event ID:', eventId)
+        return
+      }
+      
+      const response = await apiClient.getEventTicketTypesByEvent(eventIdNum)
+      if (response.success && response.data) {
+        const transformedTypes: TicketType[] = response.data.map((ticketType: any) => ({
+          id: ticketType.id.toString(),
+          name: ticketType.name,
+          description: ticketType.description || '',
+          price: parseFloat(ticketType.price) || 0,
+          available: (ticketType.quantity || 0) - (ticketType.sold || 0),
           quantity: 0
-        },
-        {
-          id: '2',
-          name: 'General',
-          description: 'Asientos generales',
-          price: 80000,
-          available: 200,
-          quantity: 0
-        },
-        {
-          id: '3',
-          name: 'Estudiante',
-          description: 'Descuento estudiantil',
-          price: 50000,
-          available: 100,
-          quantity: 0
-        },
-        {
-          id: '4',
-          name: 'Niño',
-          description: 'Menores de 12 años',
-          price: 30000,
-          available: 50,
-          quantity: 0
-        }
-      ]
-      setTicketTypes(mockTicketTypes)
+        }))
+        setTicketTypes(transformedTypes)
+      } else {
+        // Fallback a datos mock si falla la API
+        console.warn('No se pudieron cargar tipos de tickets, usando datos mock')
+        const mockTicketTypes: TicketType[] = []
+        setTicketTypes(mockTicketTypes)
+      }
     } catch (error) {
       console.error('Error cargando tipos de tickets:', error)
+      // Fallback a datos mock en caso de error
+      const mockTicketTypes: TicketType[] = []
+      setTicketTypes(mockTicketTypes)
     }
   }
 
@@ -221,50 +207,112 @@ export function NuevaVentaClient() {
   // Procesar pago
   const processPayment = async () => {
     if (!selectedPaymentMethod) {
-      alert('Selecciona un método de pago')
+      toast({
+        title: "Error",
+        description: "Selecciona un método de pago",
+        variant: "destructive",
+      })
       return
     }
 
     if (cart.length === 0) {
-      alert('Agrega tickets al carrito')
+      toast({
+        title: "Error",
+        description: "Agrega tickets al carrito",
+        variant: "destructive",
+      })
       return
     }
 
     if (!customer.name || !customer.email) {
-      alert('Completa la información del cliente')
+      toast({
+        title: "Error",
+        description: "Completa la información del cliente",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!selectedEvent) {
+      toast({
+        title: "Error",
+        description: "Selecciona un evento",
+        variant: "destructive",
+      })
       return
     }
 
     setLoading(true)
     try {
-      // Simular procesamiento de pago
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Crear orden
-      const order = {
-        id: `ORD-${Date.now()}`,
-        event: selectedEvent,
-        customer,
-        items: cart,
-        subtotal,
-        tax,
-        total,
-        paymentMethod: selectedPaymentMethod,
-        status: 'completed',
-        timestamp: new Date()
+      // Convertir carrito a formato para la API
+      const items = cart.map(item => ({
+        product_id: item.ticketType.id ? parseInt(item.ticketType.id) : undefined,
+        product_name: `${selectedEvent?.name} - ${item.ticketType.name}`,
+        product_sku: `TKT-${selectedEvent?.id}-${item.ticketType.id}`,
+        quantity: item.quantity,
+        unit_price: item.ticketType.price
+      }))
+
+      // Por ahora, necesitamos obtener register_id y session_id
+      // TODO: Implementar selección de caja y sesión activa
+      // Por ahora usamos valores temporales
+      const registerId = 1 // TODO: Obtener de la caja seleccionada
+      const sessionId = 1 // TODO: Obtener de la sesión activa
+
+      // Crear orden POS
+      const orderData = {
+        register_id: registerId,
+        session_id: sessionId,
+        customer_name: customer.name,
+        customer_email: customer.email,
+        customer_phone: customer.phone || undefined,
+        items: items,
+        payment_method: selectedPaymentMethod
       }
-      
-      console.log('Orden creada:', order)
-      
-      // Limpiar formulario
-      setCart([])
-      setCustomer({ name: '', email: '', phone: '' })
-      setSelectedPaymentMethod('')
-      setSelectedEvent(null)
-      
-      alert('Pago procesado exitosamente')
-    } catch (error) {
-      alert('Error procesando el pago')
+
+      // Intentar crear la orden usando el endpoint de venta directa o POS
+      // Primero intentamos con el endpoint de ventas directas desde sales-points
+      const response = await apiClient.createDirectSale({
+        sales_point_id: registerId,
+        customer: {
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone
+        },
+        items: items.map(item => ({
+          product_name: item.product_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          total_price: item.quantity * item.unit_price
+        })),
+        total_amount: total,
+        payment_method: selectedPaymentMethod,
+        status: 'completed',
+        notes: `Venta POS - Evento: ${selectedEvent.name}`
+      })
+
+      if (response.success) {
+        toast({
+          title: "Éxito",
+          description: "Venta procesada exitosamente",
+        })
+        
+        // Limpiar formulario
+        setCart([])
+        setCustomer({ name: '', email: '', phone: '' })
+        setSelectedPaymentMethod('')
+        setSelectedEvent(null)
+        setTicketTypes([])
+      } else {
+        throw new Error(response.message || 'Error al procesar la venta')
+      }
+    } catch (error: any) {
+      console.error('Error procesando pago:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Error procesando el pago. Intenta nuevamente.",
+        variant: "destructive",
+      })
     } finally {
       setLoading(false)
     }

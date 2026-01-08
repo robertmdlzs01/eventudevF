@@ -1,5 +1,5 @@
 const express = require("express")
-const { auth } = require("../middleware/auth")
+const { auth, requireRole } = require("../middleware/auth")
 const db = require("../config/database-postgres")
 
 const router = express.Router()
@@ -679,6 +679,228 @@ router.post("/check-availability", auth, async (req, res) => {
 
   } catch (error) {
     console.error("Error checking availability:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor"
+    })
+  }
+})
+
+// ===== ADMIN ROUTES =====
+
+// Obtener todos los pagos (admin only)
+router.get("/", auth, requireRole("admin"), async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 50, 
+      status, 
+      payment_method, 
+      search,
+      startDate,
+      endDate
+    } = req.query
+    
+    const offset = (page - 1) * limit
+    
+    let whereClause = 'WHERE 1=1'
+    const params = []
+    let paramIndex = 1
+
+    if (search) {
+      whereClause += ` AND (
+        s.transaction_id ILIKE $${paramIndex} OR
+        s.buyer_name ILIKE $${paramIndex} OR 
+        s.buyer_email ILIKE $${paramIndex} OR 
+        e.title ILIKE $${paramIndex}
+      )`
+      params.push(`%${search}%`)
+      paramIndex++
+    }
+
+    if (status && status !== 'all') {
+      whereClause += ` AND s.status = $${paramIndex}`
+      params.push(status)
+      paramIndex++
+    }
+
+    if (payment_method && payment_method !== 'all') {
+      whereClause += ` AND s.payment_method = $${paramIndex}`
+      params.push(payment_method)
+      paramIndex++
+    }
+
+    if (startDate) {
+      whereClause += ` AND s.created_at >= $${paramIndex}`
+      params.push(startDate)
+      paramIndex++
+    }
+
+    if (endDate) {
+      whereClause += ` AND s.created_at <= $${paramIndex}`
+      params.push(endDate)
+      paramIndex++
+    }
+
+    const query = `
+      SELECT 
+        s.id,
+        s.transaction_id,
+        s.buyer_name,
+        s.buyer_email,
+        s.quantity,
+        s.total_amount,
+        s.status,
+        s.payment_method,
+        s.payment_status,
+        s.payment_reference,
+        s.created_at,
+        s.updated_at,
+        e.title as event_title,
+        e.date as event_date,
+        tt.name as ticket_type_name,
+        tt.price as ticket_price
+      FROM sales s
+      LEFT JOIN events e ON s.event_id = e.id
+      LEFT JOIN ticket_types tt ON s.ticket_type_id = tt.id
+      ${whereClause}
+      ORDER BY s.created_at DESC
+      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+    `
+
+    params.push(parseInt(limit), parseInt(offset))
+
+    const result = await db.query(query, params)
+
+    // Contar total
+    const countQuery = `
+      SELECT COUNT(*) as total
+      FROM sales s
+      LEFT JOIN events e ON s.event_id = e.id
+      ${whereClause}
+    `
+    const countParams = params.slice(0, -2)
+    const countResult = await db.query(countQuery, countParams)
+
+    // Calcular estadísticas
+    const statsQuery = `
+      SELECT 
+        COUNT(*) FILTER (WHERE s.status = 'completed') as completed_count,
+        COUNT(*) FILTER (WHERE s.status = 'pending') as pending_count,
+        COUNT(*) FILTER (WHERE s.status = 'failed') as failed_count,
+        COUNT(*) FILTER (WHERE s.status = 'refunded') as refunded_count,
+        COALESCE(SUM(s.total_amount) FILTER (WHERE s.status = 'completed'), 0) as total_revenue,
+        COALESCE(SUM(s.total_amount) FILTER (WHERE s.status = 'pending'), 0) as pending_amount
+      FROM sales s
+      ${whereClause}
+    `
+    const statsResult = await db.query(statsQuery, countParams)
+
+    res.json({
+      success: true,
+      data: {
+        payments: result.rows.map(row => ({
+          id: row.id.toString(),
+          transactionId: row.transaction_id || `TXN-${row.id}`,
+          amount: parseFloat(row.total_amount) || 0,
+          status: row.status || 'pending',
+          paymentMethod: row.payment_method || 'unknown',
+          customerName: row.buyer_name || 'N/A',
+          customerEmail: row.buyer_email || 'N/A',
+          eventTitle: row.event_title || 'N/A',
+          ticketType: row.ticket_type_name || 'N/A',
+          createdAt: row.created_at,
+          processedAt: row.updated_at,
+          quantity: parseInt(row.quantity) || 0
+        })),
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: parseInt(countResult.rows[0].total),
+          pages: Math.ceil(countResult.rows[0].total / limit)
+        },
+        stats: {
+          total: parseInt(countResult.rows[0].total),
+          completed: parseInt(statsResult.rows[0].completed_count) || 0,
+          pending: parseInt(statsResult.rows[0].pending_count) || 0,
+          failed: parseInt(statsResult.rows[0].failed_count) || 0,
+          refunded: parseInt(statsResult.rows[0].refunded_count) || 0,
+          totalRevenue: parseFloat(statsResult.rows[0].total_revenue) || 0,
+          pendingAmount: parseFloat(statsResult.rows[0].pending_amount) || 0
+        }
+      }
+    })
+  } catch (error) {
+    console.error("Error obteniendo pagos:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor"
+    })
+  }
+})
+
+// Obtener detalles de un pago específico
+router.get("/:id", auth, requireRole("admin"), async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const query = `
+      SELECT 
+        s.*,
+        e.title as event_title,
+        e.date as event_date,
+        e.time as event_time,
+        e.venue as event_venue,
+        tt.name as ticket_type_name,
+        tt.price as ticket_price,
+        u.first_name,
+        u.last_name,
+        u.email as user_email
+      FROM sales s
+      LEFT JOIN events e ON s.event_id = e.id
+      LEFT JOIN ticket_types tt ON s.ticket_type_id = tt.id
+      LEFT JOIN users u ON s.user_id = u.id
+      WHERE s.id = $1
+    `
+
+    const result = await db.query(query, [id])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Pago no encontrado"
+      })
+    }
+
+    const payment = result.rows[0]
+
+    res.json({
+      success: true,
+      data: {
+        id: payment.id.toString(),
+        transactionId: payment.transaction_id || `TXN-${payment.id}`,
+        amount: parseFloat(payment.total_amount) || 0,
+        status: payment.status || 'pending',
+        paymentMethod: payment.payment_method || 'unknown',
+        paymentStatus: payment.payment_status,
+        paymentReference: payment.payment_reference,
+        customerName: payment.buyer_name || 'N/A',
+        customerEmail: payment.buyer_email || 'N/A',
+        customerPhone: payment.buyer_phone,
+        eventTitle: payment.event_title || 'N/A',
+        eventDate: payment.event_date,
+        eventTime: payment.event_time,
+        eventVenue: payment.event_venue,
+        ticketType: payment.ticket_type_name || 'N/A',
+        ticketPrice: parseFloat(payment.ticket_price) || 0,
+        quantity: parseInt(payment.quantity) || 0,
+        createdAt: payment.created_at,
+        updatedAt: payment.updated_at,
+        notes: payment.notes
+      }
+    })
+  } catch (error) {
+    console.error("Error obteniendo detalle de pago:", error)
     res.status(500).json({
       success: false,
       message: "Error interno del servidor"

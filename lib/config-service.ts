@@ -118,8 +118,11 @@ class ConfigService {
   async getConfigs(category?: string): Promise<SystemConfig[]> {
     try {
       const queryParams = category ? `?category=${category}` : ''
-      const response = await this.request<{ success: boolean; data: SystemConfig[] }>(`/api/config${queryParams}`)
-      return response.data || []
+      const response = await this.request<SystemConfig[]>(`/api/config${queryParams}`)
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error obteniendo configuraciones:', error)
       throw error
@@ -129,8 +132,11 @@ class ConfigService {
   // Obtener configuración por clave
   async getConfig(key: string): Promise<SystemConfig> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig }>(`/api/config/${key}`)
-      return response.data!
+      const response = await this.request<SystemConfig>(`/api/config/${key}`)
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Configuración no encontrada')
     } catch (error) {
       console.error('Error obteniendo configuración:', error)
       throw error
@@ -140,8 +146,11 @@ class ConfigService {
   // Obtener configuraciones por categoría
   async getConfigsByCategory(category: string): Promise<SystemConfig[]> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig[] }>(`/api/config/category/${category}`)
-      return response.data || []
+      const response = await this.request<SystemConfig[]>(`/api/config/category/${category}`)
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error obteniendo configuraciones por categoría:', error)
       throw error
@@ -151,7 +160,7 @@ class ConfigService {
   // Actualizar configuración
   async updateConfig(key: string, value: any, updatedBy: string, reason?: string): Promise<SystemConfig> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig }>(`/api/config/${key}`, {
+      const response = await this.request<SystemConfig>(`/api/config/${key}`, {
         method: 'PUT',
         body: JSON.stringify({
           value,
@@ -159,7 +168,10 @@ class ConfigService {
           reason
         }),
       })
-      return response.data!
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al actualizar la configuración')
     } catch (error) {
       console.error('Error actualizando configuración:', error)
       throw error
@@ -169,7 +181,7 @@ class ConfigService {
   // Actualizar múltiples configuraciones
   async updateConfigs(configs: Array<{ key: string; value: any }>, updatedBy: string, reason?: string): Promise<SystemConfig[]> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig[] }>('/api/config/batch', {
+      const response = await this.request<SystemConfig[]>('/api/config/batch', {
         method: 'PUT',
         body: JSON.stringify({
           configs,
@@ -177,7 +189,10 @@ class ConfigService {
           reason
         }),
       })
-      return response.data || []
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error actualizando configuraciones:', error)
       throw error
@@ -187,11 +202,14 @@ class ConfigService {
   // Crear nueva configuración
   async createConfig(config: Omit<SystemConfig, 'id' | 'createdAt' | 'updatedAt' | 'updatedBy'>): Promise<SystemConfig> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig }>('/api/config', {
+      const response = await this.request<SystemConfig>('/api/config', {
         method: 'POST',
         body: JSON.stringify(config),
       })
-      return response.data!
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al crear la configuración')
     } catch (error) {
       console.error('Error creando configuración:', error)
       throw error
@@ -214,8 +232,11 @@ class ConfigService {
   // Obtener categorías de configuración
   async getConfigCategories(): Promise<ConfigCategory[]> {
     try {
-      const response = await this.request<{ success: boolean; data: ConfigCategory[] }>('/api/config/categories')
-      return response.data || []
+      const response = await this.request<ConfigCategory[]>('/api/config/categories')
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error obteniendo categorías:', error)
       throw error
@@ -225,11 +246,14 @@ class ConfigService {
   // Validar configuraciones
   async validateConfigs(configs: Record<string, any>): Promise<ConfigValidation> {
     try {
-      const response = await this.request<{ success: boolean; data: ConfigValidation }>('/api/config/validate', {
+      const response = await this.request<ConfigValidation>('/api/config/validate', {
         method: 'POST',
         body: JSON.stringify(configs),
       })
-      return response.data!
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al validar configuraciones')
     } catch (error) {
       console.error('Error validando configuraciones:', error)
       throw error
@@ -244,8 +268,11 @@ class ConfigService {
       if (limit) queryParams.append('limit', String(limit))
       const queryString = queryParams.toString()
       const endpoint = `/api/config/history${queryString ? `?${queryString}` : ''}`
-      const response = await this.request<{ success: boolean; data: ConfigChange[] }>(endpoint)
-      return response.data || []
+      const response = await this.request<ConfigChange[]>(endpoint)
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error obteniendo historial:', error)
       throw error
@@ -255,7 +282,7 @@ class ConfigService {
   // Crear backup de configuración
   async createConfigBackup(name: string, description: string, createdBy: string): Promise<ConfigBackup> {
     try {
-      const response = await this.request<{ success: boolean; data: ConfigBackup }>('/api/config/backup', {
+      const response = await this.request<ConfigBackup>('/api/config/backup', {
         method: 'POST',
         body: JSON.stringify({
           name,
@@ -263,7 +290,10 @@ class ConfigService {
           createdBy
         }),
       })
-      return response.data!
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al crear el backup')
     } catch (error) {
       console.error('Error creando backup:', error)
       throw error
@@ -273,8 +303,11 @@ class ConfigService {
   // Obtener backups
   async getConfigBackups(): Promise<ConfigBackup[]> {
     try {
-      const response = await this.request<{ success: boolean; data: ConfigBackup[] }>('/api/config/backups')
-      return response.data || []
+      const response = await this.request<ConfigBackup[]>('/api/config/backups')
+      if (response && 'data' in response && Array.isArray(response.data)) {
+        return response.data
+      }
+      return []
     } catch (error) {
       console.error('Error obteniendo backups:', error)
       throw error
@@ -354,11 +387,14 @@ class ConfigService {
   // Resetear configuración a valores por defecto
   async resetConfigToDefault(key: string, resetBy: string): Promise<SystemConfig> {
     try {
-      const response = await this.request<{ success: boolean; data: SystemConfig }>(`/api/config/${key}/reset`, {
+      const response = await this.request<SystemConfig>(`/api/config/${key}/reset`, {
         method: 'POST',
         body: JSON.stringify({ resetBy }),
       })
-      return response.data!
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al resetear la configuración')
     } catch (error) {
       console.error('Error reseteando configuración:', error)
       throw error
@@ -368,8 +404,11 @@ class ConfigService {
   // Obtener configuración pública (sin valores sensibles)
   async getPublicConfig(): Promise<Record<string, any>> {
     try {
-      const response = await this.request<{ success: boolean; data: Record<string, any> }>('/api/config/public')
-      return response.data || {}
+      const response = await this.request<Record<string, any>>('/api/config/public')
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      return {}
     } catch (error) {
       console.error('Error obteniendo configuración pública:', error)
       throw error
@@ -388,7 +427,7 @@ class ConfigService {
     lastBackup: Date
   }> {
     try {
-      const response = await this.request<{ success: boolean; data: {
+      const response = await this.request<{
         version: string
         environment: string
         database: string
@@ -397,8 +436,11 @@ class ConfigService {
         lastUpdate: Date
         configCount: number
         lastBackup: Date
-      } }>('/api/config/system-info')
-      return response.data!
+      }>('/api/config/system-info')
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al obtener información del sistema')
     } catch (error) {
       console.error('Error obteniendo información del sistema:', error)
       throw error
@@ -433,7 +475,7 @@ class ConfigService {
     }
   }> {
     try {
-      const response = await this.request<{ success: boolean; data: {
+      const response = await this.request<{
         email: {
           enabled: boolean
           smtp: {
@@ -458,8 +500,11 @@ class ConfigService {
           service: string
           apiKey: string
         }
-      } }>('/api/config/notifications')
-      return response.data!
+      }>('/api/config/notifications')
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al obtener configuración de notificaciones')
     } catch (error) {
       console.error('Error obteniendo configuración de notificaciones:', error)
       throw error
@@ -506,7 +551,7 @@ class ConfigService {
     }
   }> {
     try {
-      const response = await this.request<{ success: boolean; data: {
+      const response = await this.request<{
         passwordPolicy: {
           minLength: number
           requireUppercase: boolean
@@ -529,8 +574,11 @@ class ConfigService {
           algorithm: string
           keyLength: number
         }
-      } }>('/api/config/security')
-      return response.data!
+      }>('/api/config/security')
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al obtener configuración de seguridad')
     } catch (error) {
       console.error('Error obteniendo configuración de seguridad:', error)
       throw error
@@ -560,14 +608,17 @@ class ConfigService {
     apis: Record<string, any>
   }> {
     try {
-      const response = await this.request<{ success: boolean; data: {
+      const response = await this.request<{
         paymentGateways: Record<string, any>
         emailProviders: Record<string, any>
         analytics: Record<string, any>
         socialMedia: Record<string, any>
         apis: Record<string, any>
-      } }>('/api/config/integrations')
-      return response.data!
+      }>('/api/config/integrations')
+      if (response && response.data && typeof response.data === 'object') {
+        return response.data
+      }
+      throw new Error('Error al obtener configuración de integraciones')
     } catch (error) {
       console.error('Error obteniendo configuración de integraciones:', error)
       throw error
