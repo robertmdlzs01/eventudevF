@@ -77,6 +77,47 @@ router.put('/registers/:id', auth, async (req, res) => {
     }
 });
 
+// Eliminar caja registradora
+router.delete('/registers/:id', auth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Verificar si hay sesiones activas
+        const activeSessionQuery = `
+            SELECT COUNT(*) as count FROM pos_register_sessions 
+            WHERE register_id = $1 AND is_active = true
+        `;
+        
+        const activeSessionResult = await db.query(activeSessionQuery, [id]);
+        
+        if (parseInt(activeSessionResult.rows[0].count) > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'No se puede eliminar una caja con sesiones activas. Cierre las sesiones primero.' 
+            });
+        }
+        
+        // Desactivar la caja en lugar de eliminarla físicamente (soft delete)
+        const query = `
+            UPDATE pos_registers 
+            SET is_active = false, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *
+        `;
+        
+        const result = await db.query(query, [id]);
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Caja registradora no encontrada' });
+        }
+        
+        res.json({ success: true, message: 'Caja registradora eliminada exitosamente', register: result.rows[0] });
+    } catch (error) {
+        console.error('Error eliminando caja registradora:', error);
+        res.status(500).json({ success: false, error: 'Error interno del servidor' });
+    }
+});
+
 // ===== GESTIÓN DE SESIONES DE CAJA =====
 
 // Abrir sesión de caja
@@ -197,6 +238,29 @@ router.get('/sessions/active', auth, async (req, res) => {
         res.json({ success: true, sessions: result.rows });
     } catch (error) {
         console.error('Error obteniendo sesiones activas:', error);
+        res.status(500).json({ success: false, error: 'Error interno del servidor' });
+    }
+});
+
+// Obtener sesiones por caja registradora
+router.get('/registers/:id/sessions', auth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const query = `
+            SELECT rs.*, r.name as register_name, u.name as user_name, u.email as user_email
+            FROM pos_register_sessions rs
+            JOIN pos_registers r ON rs.register_id = r.id
+            JOIN users u ON rs.user_id = u.id
+            WHERE rs.register_id = $1
+            ORDER BY rs.opened_at DESC
+            LIMIT 50
+        `;
+        
+        const result = await db.query(query, [id]);
+        res.json({ success: true, sessions: result.rows });
+    } catch (error) {
+        console.error('Error obteniendo sesiones de caja:', error);
         res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });

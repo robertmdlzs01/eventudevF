@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
       .replace(/\s+/g, '-')
       .trim();
 
-    // Insertar evento en Supabase
+    // Insertar evento
     const { data: newEvent, error } = await supabase
       .from('events')
       .insert({

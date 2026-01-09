@@ -744,6 +744,47 @@ export async function updatePhysicalTicketStatus(id: string, status: string): Pr
   }
 }
 
+// Función para obtener un lote de boletas físicas específico
+export async function getPhysicalTicket(id: string): Promise<any | null> {
+  try {
+    const response = await apiClient.getPhysicalTicket(parseInt(id))
+    if (response.success && response.data) {
+      return response.data
+    }
+    return null
+  } catch (error) {
+    console.error('Error fetching physical ticket:', error)
+    return null
+  }
+}
+
+// Función para actualizar un lote de boletas físicas
+export async function updatePhysicalTicket(id: string, data: {
+  quantity?: number
+  price?: number
+  sales_point?: string
+  notes?: string
+}): Promise<boolean> {
+  try {
+    const response = await apiClient.updatePhysicalTicket(parseInt(id), data)
+    return response.success
+  } catch (error) {
+    console.error('Error updating physical ticket:', error)
+    return false
+  }
+}
+
+// Función para eliminar un lote de boletas físicas
+export async function deletePhysicalTicket(id: string): Promise<boolean> {
+  try {
+    const response = await apiClient.deletePhysicalTicket(parseInt(id))
+    return response.success
+  } catch (error) {
+    console.error('Error deleting physical ticket:', error)
+    return false
+  }
+}
+
 export async function getSalesPoints(): Promise<any[]> {
   try {
     const response = await apiClient.getSalesPoints()
@@ -963,23 +1004,28 @@ export async function cancelSale(saleId: string, reason?: string): Promise<boole
   }
 }
 
+// Función auxiliar para transformar categoría del backend al formato del frontend
+function transformCategory(category: any): AdminCategory {
+  return {
+    id: category.id.toString(),
+    name: category.name,
+    slug: category.slug || category.name.toLowerCase().replace(/\s+/g, '-'),
+    description: category.description,
+    icon: category.icon || "tag",
+    color: category.color || "blue",
+    eventCount: category.event_count || 0,
+    status: category.status || "active",
+    createdAt: category.created_at,
+    updatedAt: category.updated_at,
+  }
+}
+
 // Función para obtener categorías desde la API
 export async function getCategories(): Promise<AdminCategory[]> {
   try {
     const response = await apiClient.getCategories()
     if (response.success && response.data) {
-      return response.data.map((category: any) => ({
-        id: category.id.toString(),
-        name: category.name,
-        slug: category.slug || category.name.toLowerCase().replace(/\s+/g, '-'),
-        description: category.description,
-        icon: category.icon || "tag",
-        color: category.color || "blue",
-        eventCount: category.event_count || 0,
-        status: category.status || "active",
-        createdAt: category.created_at,
-        updatedAt: category.updated_at,
-      }))
+      return response.data.map(transformCategory)
     }
   } catch (error) {
     console.error('Error fetching categories from backend:', error)
@@ -1578,48 +1624,69 @@ export async function changeEventStatus(eventId: string, status: 'draft' | 'publ
 // Función para crear una categoría
 export async function createAdminCategory(categoryData: Partial<AdminCategory>): Promise<boolean> {
   try {
-    // TODO: Implementar cuando el método esté disponible
-    // const response = await apiClient.createCategory(categoryData)
-    console.log('createAdminCategory not implemented yet')
-    return false
-  } catch (error) {
+    const response = await apiClient.createCategory({
+      name: categoryData.name || '',
+      description: categoryData.description,
+      icon: categoryData.icon,
+      color: categoryData.color
+    })
+    
+    if (response.success) {
+      return true
+    } else {
+      throw new Error(response.error || 'Error al crear la categoría')
+    }
+  } catch (error: any) {
     console.error('Error creating category:', error)
-    return false
+    throw new Error(error.message || 'Error al crear la categoría')
   }
 }
 
 // Función para actualizar una categoría
 export async function updateAdminCategory(categoryId: string, categoryData: Partial<AdminCategory>): Promise<boolean> {
   try {
-    // TODO: Implementar cuando el método esté disponible
-    // const response = await apiClient.updateCategory(parseInt(categoryId), categoryData)
-    console.log('updateAdminCategory not implemented yet')
-    return false
-  } catch (error) {
+    const response = await apiClient.updateCategory(parseInt(categoryId), {
+      name: categoryData.name,
+      description: categoryData.description,
+      icon: categoryData.icon,
+      color: categoryData.color
+    })
+    
+    if (response.success) {
+      return true
+    } else {
+      throw new Error(response.error || 'Error al actualizar la categoría')
+    }
+  } catch (error: any) {
     console.error('Error updating category:', error)
-    return false
+    throw new Error(error.message || 'Error al actualizar la categoría')
   }
 }
 
 // Función para eliminar una categoría
 export async function deleteAdminCategory(categoryId: string): Promise<boolean> {
   try {
-    // TODO: Implementar cuando el método esté disponible
-    // const response = await apiClient.deleteCategory(parseInt(categoryId))
-    console.log('deleteAdminCategory not implemented yet')
-    return false
-  } catch (error) {
+    const response = await apiClient.deleteCategory(parseInt(categoryId))
+    
+    if (response.success) {
+      return true
+    } else {
+      throw new Error(response.error || response.message || 'Error al eliminar la categoría')
+    }
+  } catch (error: any) {
     console.error('Error deleting category:', error)
-    return false
+    throw new Error(error.message || 'Error al eliminar la categoría')
   }
 }
 
 // Función para obtener una categoría específica
 export async function getAdminCategory(id: string): Promise<AdminCategory | null> {
   try {
-    // TODO: Implementar cuando el método esté disponible
-    // const response = await apiClient.getCategory(parseInt(id))
-    console.log('getAdminCategory not implemented yet')
+    const response = await apiClient.getCategory(parseInt(id))
+    
+    if (response.success && response.data) {
+      return transformCategory(response.data)
+    }
     return null
   } catch (error) {
     console.error('Error getting category:', error)

@@ -19,6 +19,46 @@ class CobruService {
   }
 
   /**
+   * Refrescar token de acceso usando refresh token
+   * @returns {Promise<string>} - Token de acceso
+   */
+  async refreshToken() {
+    try {
+      if (!this.refreshToken) {
+        throw new Error('Refresh token no configurado');
+      }
+
+      const response = await axios.request({
+        method: 'POST',
+        url: `${this.baseUrl}/token/refresh/`,
+        headers: {
+          'Access-Control-Allow-Headers': '*',
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'x-api-key': this.apiKey
+        },
+        data: {
+          refresh: this.refreshToken
+        }
+      });
+
+      if (response.data && response.data.access) {
+        this.accessToken = response.data.access;
+        // Asumir que el token expira en 1 hora (ajustar según la respuesta real)
+        this.tokenExpiry = Date.now() + (60 * 60 * 1000);
+        console.log('Token de Cobru renovado exitosamente');
+        return this.accessToken;
+      }
+
+      throw new Error('No se recibió token de acceso en la respuesta');
+
+    } catch (error) {
+      console.error('Error refrescando token de Cobru:', error.response?.data || error.message);
+      throw new Error('Error al refrescar token de Cobru');
+    }
+  }
+
+  /**
    * Obtener token de acceso válido
    * @returns {Promise<string>} - Token de acceso
    */
@@ -29,41 +69,20 @@ class CobruService {
         return this.accessToken;
       }
 
-      // Intentar usar la API Key directamente como token
+      // Intentar refrescar el token
+      if (this.refreshToken) {
+        try {
+          return await this.refreshToken();
+        } catch (refreshError) {
+          console.log('No se pudo refrescar token, intentando usar API Key directamente');
+        }
+      }
+
+      // Fallback: usar API Key directamente
       if (this.apiKey) {
         console.log('Usando API Key como token de acceso');
         this.accessToken = this.apiKey;
         this.tokenExpiry = Date.now() + (60 * 60 * 1000); // 1 hora
-        return this.accessToken;
-      }
-
-      // Si no hay API Key, intentar renovar token
-      if (this.refreshToken) {
-        try {
-          const response = await axios.post(`${this.baseUrl}/api/v1/auth/refresh`, {
-            refresh_token: this.refreshToken
-          }, {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Environment': this.environment
-            }
-          });
-
-          if (response.data && response.data.access_token) {
-            this.accessToken = response.data.access_token;
-            this.tokenExpiry = Date.now() + (response.data.expires_in * 1000) || Date.now() + (60 * 60 * 1000);
-            console.log('Token de Cobru renovado exitosamente');
-            return this.accessToken;
-          }
-        } catch (refreshError) {
-          console.log('No se pudo renovar token, usando API Key');
-        }
-      }
-
-      // Fallback: usar API Key
-      if (this.apiKey) {
-        this.accessToken = this.apiKey;
-        this.tokenExpiry = Date.now() + (60 * 60 * 1000);
         return this.accessToken;
       }
 
@@ -76,82 +95,189 @@ class CobruService {
   }
 
   /**
-   * Crear una transacción de pago
-   * @param {Object} paymentData - Datos del pago
-   * @returns {Promise<Object>} - Respuesta de Cobru
+   * Crear un Cobru (link de pago)
+   * @param {Object} cobruData - Datos para crear el Cobru
+   * @returns {Promise<Object>} - Respuesta de Cobru con URL
    */
-  async createPayment(paymentData) {
+  async createCobru(cobruData) {
     try {
       const {
         amount,
-        currency = 'COP',
         description,
-        customerEmail,
-        customerName,
-        customerPhone,
-        orderId,
-        items = []
-      } = paymentData;
+        expiration_days = 1
+      } = cobruData;
 
       // Validar datos requeridos
-      if (!amount || !description || !customerEmail) {
-        throw new Error('Datos de pago incompletos');
+      if (!amount || !description) {
+        throw new Error('Datos incompletos: amount y description son requeridos');
       }
 
-      // Obtener token de acceso válido
-      const accessToken = await this.getValidAccessToken();
+      // Refrescar token
+      const r = await this.refreshToken();
+      const accessToken = r;
 
       const payload = {
-        amount: Math.round(amount * 100), // Convertir a centavos
-        currency,
-        description,
-        customer: {
-          email: customerEmail,
-          name: customerName,
-          phone: customerPhone
-        },
-        order_id: orderId,
-        items: items.map(item => ({
-          name: item.name,
-          quantity: item.quantity,
-          price: Math.round(item.price * 100)
-        })),
-        redirect_url: this.redirectUrl,
-        cancel_url: this.cancelUrl,
-        webhook_url: `${process.env.BACKEND_URL}/api/payments/cobru/webhook`,
-        merchant_id: this.merchantId
+        amount: amount,
+        platform: "API",
+        description: description,
+        expiration_days: expiration_days,
+        payment_method_enabled: JSON.stringify({ "credit_card": true })
       };
 
-      console.log('Creando pago con Cobru:', {
+      console.log('Creando Cobru:', {
         amount: payload.amount,
-        currency: payload.currency,
-        customer: payload.customer,
-        order_id: payload.order_id
+        description: payload.description
       });
 
-      const response = await axios.post(`${this.baseUrl}/api/payments`, payload, {
+      const response = await axios.request({
+        method: 'POST',
+        url: `${this.baseUrl}/cobru/`,
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Access-Control-Allow-Headers': '*',
           'Content-Type': 'application/json',
-          'X-Environment': this.environment,
-          'X-Merchant-ID': this.merchantId
-        }
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+          'x-api-key': this.apiKey
+        },
+        data: payload
       });
+
+      if (!response.data || !response.data.url) {
+        throw new Error('No se pudo crear el Cobru: URL no recibida');
+      }
 
       return {
         success: true,
         data: response.data,
-        paymentUrl: response.data.payment_url || response.data.url,
-        transactionId: response.data.id || response.data.transaction_id
+        url: response.data.url,
+        accessToken: accessToken
       };
 
     } catch (error) {
-      console.error('Error creando pago con Cobru:', error.response?.data || error.message);
+      console.error('Error creando Cobru:', error.response?.data || error.message);
       return {
         success: false,
-        error: error.response?.data?.message || error.message
+        error: error.response?.data?.message || error.message || 'NO SE PUDO CREAR EL COBRU',
+        error_axios: error.response ? {
+          status: error.response.status,
+          data: error.response.data
+        } : error.message
       };
     }
+  }
+
+  /**
+   * Procesar pago con tarjeta de crédito usando Cobru
+   * @param {Object} paymentData - Datos del pago
+   * @returns {Promise<Object>} - Resultado del pago
+   */
+  async processPayment(paymentData) {
+    try {
+      const {
+        amount,
+        description,
+        payment = "credit_card",
+        cc,
+        name,
+        email,
+        phone,
+        document_type,
+        number, // número de tarjeta
+        expiration, // fecha de expiración
+        cvv,
+        dues // cuotas
+      } = paymentData;
+
+      // Validar datos requeridos
+      if (!amount || !description) {
+        throw new Error('Datos incompletos: amount y description son requeridos');
+      }
+
+      // Crear Cobru primero
+      const cobruResult = await this.createCobru({
+        amount,
+        description,
+        expiration_days: 1
+      });
+
+      if (!cobruResult.success || !cobruResult.url) {
+        return {
+          success: false,
+          error: cobruResult.error || 'NO SE PUDO CREAR EL COBRU',
+          access: cobruResult.accessToken
+        };
+      }
+
+      console.log('Cobru creado exitosamente, procesando pago...');
+
+      // Preparar datos para el pago
+      let senddata = {};
+      
+      if (payment === "credit_card") {
+        if (!number || !expiration || !cvv || !name || !email) {
+          throw new Error('Datos de tarjeta incompletos');
+        }
+
+        senddata = {
+          cc: cc || name,
+          name: name,
+          email: email,
+          phone: phone || '',
+          payment: "credit_card",
+          document_type: document_type || 'CC',
+          credit_card: number,
+          expiration_date: expiration,
+          cvv: cvv,
+          dues: dues || 1
+        };
+      }
+
+      // Procesar el pago en el Cobru creado
+      const paymentResponse = await axios.request({
+        method: 'POST',
+        url: `${this.baseUrl}/${cobruResult.url}`,
+        headers: {
+          'Access-Control-Allow-Headers': '*',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${cobruResult.accessToken}`,
+          Accept: 'application/json',
+          'x-api-key': this.apiKey
+        },
+        data: senddata
+      });
+
+      console.log('Pago procesado exitosamente');
+
+      return {
+        success: true,
+        data: paymentResponse.data,
+        url: cobruResult.url,
+        transactionId: paymentResponse.data.id || paymentResponse.data.transaction_id
+      };
+
+    } catch (error) {
+      console.error('Error procesando pago con Cobru:', error.response?.data || error.message);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message || 'NO SE PUDO HACER EL PAGO',
+        msg: error.response?.data || error.message
+      };
+    }
+  }
+
+  /**
+   * Crear una transacción de pago (método legacy - mantiene compatibilidad)
+   * @param {Object} paymentData - Datos del pago
+   * @returns {Promise<Object>} - Respuesta de Cobru
+   */
+  async createPayment(paymentData) {
+    // Si viene con datos de tarjeta, usar processPayment
+    if (paymentData.number || paymentData.credit_card) {
+      return await this.processPayment(paymentData);
+    }
+
+    // Si no, crear solo el Cobru (link de pago)
+    return await this.createCobru(paymentData);
   }
 
   /**

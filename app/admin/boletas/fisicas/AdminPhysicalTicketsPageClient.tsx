@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Search, Edit, Trash2, Printer, MapPin, Package, Eye, Download } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
-import { getPhysicalTickets, createPhysicalTicketBatch, updatePhysicalTicketStatus, getSalesPoints, exportData } from "@/app/admin/actions"
+import { getPhysicalTickets, createPhysicalTicketBatch, updatePhysicalTicketStatus, getSalesPoints, exportData, getPhysicalTicket, updatePhysicalTicket, deletePhysicalTicket } from "@/app/admin/actions"
 import { TicketPrintDialog } from "@/components/admin/ticket-print-dialog"
 import type { TicketData } from "@/lib/ticket-templates"
 
@@ -145,6 +145,16 @@ export default function AdminPhysicalTicketsPageClient() {
   const [events, setEvents] = useState<any[]>([])
   const [ticketTypes, setTicketTypes] = useState<any[]>([])
   const [selectedTicketForPrint, setSelectedTicketForPrint] = useState<PhysicalTicket | null>(null)
+  const [selectedTicketForView, setSelectedTicketForView] = useState<PhysicalTicket | null>(null)
+  const [selectedTicketForEdit, setSelectedTicketForEdit] = useState<PhysicalTicket | null>(null)
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    quantity: '',
+    price: '',
+    sales_point: '',
+    notes: ''
+  })
   const [formData, setFormData] = useState({
     event_id: '',
     ticket_type_id: '',
@@ -290,6 +300,117 @@ export default function AdminPhysicalTicketsPageClient() {
       qrCode: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${ticket.batchNumber}`,
       purchaseDate: ticket.createdDate,
       purchaseId: ticket.id,
+    }
+  }
+
+  const handleViewDetails = async (ticket: PhysicalTicket) => {
+    try {
+      // Cargar detalles completos desde el backend
+      const details = await getPhysicalTicket(ticket.id)
+      if (details) {
+        setSelectedTicketForView({
+          ...ticket,
+          ...details
+        })
+        setIsViewDialogOpen(true)
+      } else {
+        // Si no se pueden cargar detalles, usar los datos locales
+        setSelectedTicketForView(ticket)
+        setIsViewDialogOpen(true)
+      }
+    } catch (error) {
+      console.error('Error loading ticket details:', error)
+      // Usar datos locales como fallback
+      setSelectedTicketForView(ticket)
+      setIsViewDialogOpen(true)
+    }
+  }
+
+  const handleEdit = (ticket: PhysicalTicket) => {
+    setSelectedTicketForEdit(ticket)
+    setEditFormData({
+      quantity: ticket.quantity.toString(),
+      price: ticket.price.toString(),
+      sales_point: ticket.salesPoint,
+      notes: ''
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const handleUpdateBatch = async () => {
+    if (!selectedTicketForEdit) return
+
+    try {
+      const updateData: any = {}
+      
+      if (editFormData.quantity) {
+        updateData.quantity = parseInt(editFormData.quantity)
+      }
+      if (editFormData.price) {
+        updateData.price = parseFloat(editFormData.price)
+      }
+      if (editFormData.sales_point) {
+        updateData.sales_point = editFormData.sales_point
+      }
+      if (editFormData.notes !== undefined) {
+        updateData.notes = editFormData.notes
+      }
+
+      const success = await updatePhysicalTicket(selectedTicketForEdit.id, updateData)
+      
+      if (success) {
+        toast({
+          title: "Lote actualizado",
+          description: "El lote de boletas ha sido actualizado exitosamente.",
+        })
+        setIsEditDialogOpen(false)
+        setSelectedTicketForEdit(null)
+        loadData()
+      } else {
+        toast({
+          title: "Error",
+          description: "No se pudo actualizar el lote.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error updating batch:', error)
+      toast({
+        title: "Error",
+        description: "Error al actualizar el lote.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleDelete = async (ticket: PhysicalTicket) => {
+    if (!confirm(`¿Estás seguro de que deseas eliminar el lote ${ticket.batchNumber}? Esta acción no se puede deshacer.`)) {
+      return
+    }
+
+    try {
+      const success = await deletePhysicalTicket(ticket.id)
+      
+      if (success) {
+        toast({
+          title: "Lote eliminado",
+          description: "El lote de boletas ha sido eliminado exitosamente.",
+        })
+        loadData()
+      } else {
+        toast({
+          title: "Error",
+          description: "No se pudo eliminar el lote. Verifica que no tenga boletos vendidos o distribuidos.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.error('Error deleting batch:', error)
+      toast({
+        title: "Error",
+        description: "Error al eliminar el lote.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -623,7 +744,12 @@ export default function AdminPhysicalTicketsPageClient() {
                   <TableCell>{getStatusBadge(ticket.status)}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleViewDetails(ticket)}
+                        title="Ver detalles"
+                      >
                         <Eye className="h-4 w-4" />
                       </Button>
                       {ticket.status === "pending" && (
@@ -641,10 +767,22 @@ export default function AdminPhysicalTicketsPageClient() {
                           <Package className="h-4 w-4" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleEdit(ticket)}
+                        title="Editar lote"
+                        disabled={ticket.status === 'distributed' || ticket.status === 'completed'}
+                      >
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="sm">
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => handleDelete(ticket)}
+                        title="Eliminar lote"
+                        disabled={ticket.sold > 0 || ticket.status === 'distributed'}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -668,6 +806,163 @@ export default function AdminPhysicalTicketsPageClient() {
           }}
         />
       )}
+
+      {/* Diálogo de Ver Detalles */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Detalles del Lote de Boletas Físicas</DialogTitle>
+            <DialogDescription>
+              Información completa del lote {selectedTicketForView?.batchNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTicketForView && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Número de Lote</Label>
+                  <p className="text-sm font-semibold">{selectedTicketForView.batchNumber}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Estado</Label>
+                  <div className="mt-1">{getStatusBadge(selectedTicketForView.status)}</div>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Evento</Label>
+                  <p className="text-sm">{selectedTicketForView.eventName}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Tipo de Boleta</Label>
+                  <p className="text-sm">{selectedTicketForView.ticketType}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Cantidad Total</Label>
+                  <p className="text-sm font-semibold">{selectedTicketForView.quantity}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Impresas</Label>
+                  <p className="text-sm font-semibold">{selectedTicketForView.printed}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Vendidas</Label>
+                  <p className="text-sm font-semibold text-green-600">{selectedTicketForView.sold}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Restantes</Label>
+                  <p className="text-sm font-semibold text-blue-600">{selectedTicketForView.remaining}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Precio Unitario</Label>
+                  <p className="text-sm font-semibold">${selectedTicketForView.price.toLocaleString()}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Punto de Venta</Label>
+                  <p className="text-sm">{selectedTicketForView.salesPoint}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Fecha de Creación</Label>
+                  <p className="text-sm">{new Date(selectedTicketForView.createdDate).toLocaleDateString('es-ES')}</p>
+                </div>
+                {selectedTicketForView.printedDate && (
+                  <div>
+                    <Label className="text-sm font-medium text-gray-500">Fecha de Impresión</Label>
+                    <p className="text-sm">{new Date(selectedTicketForView.printedDate).toLocaleDateString('es-ES')}</p>
+                  </div>
+                )}
+                {selectedTicketForView.distributedDate && (
+                  <div>
+                    <Label className="text-sm font-medium text-gray-500">Fecha de Distribución</Label>
+                    <p className="text-sm">{new Date(selectedTicketForView.distributedDate).toLocaleDateString('es-ES')}</p>
+                  </div>
+                )}
+              </div>
+              {selectedTicketForView.notes && (
+                <div>
+                  <Label className="text-sm font-medium text-gray-500">Notas</Label>
+                  <p className="text-sm text-gray-700 mt-1">{selectedTicketForView.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Diálogo de Editar */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Editar Lote de Boletas Físicas</DialogTitle>
+            <DialogDescription>
+              Modifica los datos del lote {selectedTicketForEdit?.batchNumber}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTicketForEdit && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-quantity">Cantidad</Label>
+                  <Input
+                    id="edit-quantity"
+                    type="number"
+                    value={editFormData.quantity}
+                    onChange={(e) => setEditFormData({...editFormData, quantity: e.target.value})}
+                    min={selectedTicketForEdit.sold}
+                    placeholder={selectedTicketForEdit.quantity.toString()}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Mínimo: {selectedTicketForEdit.sold} (ya vendidos)
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-price">Precio Unitario</Label>
+                  <Input
+                    id="edit-price"
+                    type="number"
+                    value={editFormData.price}
+                    onChange={(e) => setEditFormData({...editFormData, price: e.target.value})}
+                    placeholder={selectedTicketForEdit.price.toString()}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-sales-point">Punto de Venta</Label>
+                  <Select 
+                    value={editFormData.sales_point} 
+                    onValueChange={(value) => setEditFormData({...editFormData, sales_point: value})}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar punto" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {salesPoints.map((point) => (
+                        <SelectItem key={point.id} value={point.name}>
+                          {point.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-notes">Notas</Label>
+                <Textarea
+                  id="edit-notes"
+                  value={editFormData.notes}
+                  onChange={(e) => setEditFormData({...editFormData, notes: e.target.value})}
+                  placeholder="Notas adicionales sobre el lote..."
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={handleUpdateBatch}>
+                  Guardar Cambios
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

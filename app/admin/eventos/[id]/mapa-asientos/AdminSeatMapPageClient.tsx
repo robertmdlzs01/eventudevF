@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
 import { Eye, Save, Download, Upload, RotateCcw, Plus } from "lucide-react"
-import VisualSeatMapCreator from "@/components/admin/visual-seat-map-creator"
+import SeatMapDesigner from "@/components/admin/seat-map-designer"
 
 interface AdminSeatMapPageClientProps {
   eventId: string
@@ -82,7 +82,7 @@ export default function AdminSeatMapPageClient({ eventId }: AdminSeatMapPageClie
 
           <TabsContent value="creator" className="mt-6">
             <div className="h-[calc(100vh-200px)]">
-              <VisualSeatMapCreator 
+              <SeatMapDesigner 
                 eventId={eventId} 
                 onSave={handleSaveMap}
               />

@@ -298,6 +298,44 @@ export class ApiClient {
     })
   }
 
+  // Obtener una categoría específica
+  async getCategory(categoryId: number): Promise<ApiResponse<any>> {
+    return this.request(`/categories/${categoryId}`)
+  }
+
+  // Crear categoría
+  async createCategory(data: {
+    name: string
+    description?: string
+    icon?: string
+    color?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request("/categories", {
+      method: "POST",
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Actualizar categoría
+  async updateCategory(categoryId: number, data: {
+    name?: string
+    description?: string
+    icon?: string
+    color?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request(`/categories/${categoryId}`, {
+      method: "PUT",
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Eliminar categoría
+  async deleteCategory(categoryId: number): Promise<ApiResponse<any>> {
+    return this.request(`/categories/${categoryId}`, {
+      method: "DELETE"
+    })
+  }
+
   // User Profile API
   async updateProfile(userData: any): Promise<ApiResponse<any>> {
     return this.request("/users/profile", {
@@ -1157,6 +1195,31 @@ export class ApiClient {
     })
   }
 
+  // Obtener un lote de boletas físicas específico
+  async getPhysicalTicket(id: number): Promise<ApiResponse<any>> {
+    return this.request(`/admin/physical-tickets/${id}`)
+  }
+
+  // Actualizar un lote de boletas físicas
+  async updatePhysicalTicket(id: number, data: {
+    quantity?: number
+    price?: number
+    sales_point?: string
+    notes?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request(`/admin/physical-tickets/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  // Eliminar un lote de boletas físicas
+  async deletePhysicalTicket(id: number): Promise<ApiResponse<any>> {
+    return this.request(`/admin/physical-tickets/${id}`, {
+      method: 'DELETE',
+    })
+  }
+
   // Sales points API - moved to dedicated section below
 
   // Virtual tickets API
@@ -1667,6 +1730,11 @@ export class ApiClient {
     return this.request('/pos/sessions/active')
   }
 
+  // Obtener sesiones por caja registradora
+  async getPOSSessionsByRegister(registerId: number): Promise<ApiResponse<any>> {
+    return this.request(`/pos/registers/${registerId}/sessions`)
+  }
+
   // Crear orden POS
   async createPOSOrder(data: {
     register_id: number
@@ -1697,6 +1765,82 @@ export class ApiClient {
   // Obtener detalles de orden
   async getPOSOrder(orderId: number): Promise<ApiResponse<any>> {
     return this.request(`/pos/orders/${orderId}`)
+  }
+
+  // ===== MÉTODOS DE REEMBOLSOS =====
+
+  // Obtener todos los reembolsos
+  async getRefunds(params?: {
+    status?: string
+    search?: string
+    dateFrom?: string
+    dateTo?: string
+    limit?: number
+    offset?: number
+  }): Promise<ApiResponse<any>> {
+    const queryParams = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          queryParams.append(key, String(value))
+        }
+      })
+    }
+    const query = queryParams.toString()
+    return this.request(`/refunds${query ? `?${query}` : ''}`)
+  }
+
+  // Obtener un reembolso específico
+  async getRefund(refundId: number): Promise<ApiResponse<any>> {
+    return this.request(`/refunds/${refundId}`)
+  }
+
+  // Crear nuevo reembolso
+  async createRefund(data: {
+    sale_id: number
+    order_number?: string
+    customer_id?: number
+    customer_name: string
+    customer_email?: string
+    customer_phone?: string
+    amount: number
+    reason: string
+    refund_method?: string
+    notes?: string
+  }): Promise<ApiResponse<any>> {
+    return this.request('/refunds', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+  }
+
+  // Aprobar reembolso
+  async approveRefund(refundId: number, notes?: string): Promise<ApiResponse<any>> {
+    return this.request(`/refunds/${refundId}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ notes })
+    })
+  }
+
+  // Rechazar reembolso
+  async rejectRefund(refundId: number, reason: string): Promise<ApiResponse<any>> {
+    return this.request(`/refunds/${refundId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason })
+    })
+  }
+
+  // Procesar reembolso (devolver dinero)
+  async processRefund(refundId: number, transaction_id?: string, notes?: string): Promise<ApiResponse<any>> {
+    return this.request(`/refunds/${refundId}/process`, {
+      method: 'POST',
+      body: JSON.stringify({ transaction_id, notes })
+    })
+  }
+
+  // Verificar si una venta es elegible para reembolso
+  async getRefundEligibility(saleId: number): Promise<ApiResponse<any>> {
+    return this.request(`/refunds/sales/${saleId}/eligible`)
   }
 
   // ===== MÉTODOS DE CHECK-IN =====

@@ -59,9 +59,11 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
       const configsData = category 
         ? await configService.getConfigsByCategory(category)
         : await configService.getConfigs()
-      setConfigs(configsData)
-    } catch (error) {
+      setConfigs(configsData || [])
+    } catch (error: any) {
       console.error('Error cargando configuraciones:', error)
+      // Si la tabla no existe, usar array vacío
+      setConfigs([])
     } finally {
       setLoading(false)
     }
@@ -71,9 +73,23 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
   const loadCategories = async () => {
     try {
       const categoriesData = await configService.getConfigCategories()
-      setCategories(categoriesData)
-    } catch (error) {
+      // Filtrar duplicados y asegurar IDs únicos
+      const uniqueCategories = (categoriesData || []).reduce((acc: ConfigCategory[], cat: ConfigCategory) => {
+        if (!acc.find(c => c.id === cat.id)) {
+          acc.push(cat)
+        }
+        return acc
+      }, [])
+      setCategories(uniqueCategories)
+    } catch (error: any) {
       console.error('Error cargando categorías:', error)
+      // Si falla, usar categorías por defecto
+      setCategories([
+        { id: 'general', name: 'General', description: 'Configuraciones generales', icon: 'Settings', color: 'blue', order: 1, isActive: true },
+        { id: 'security', name: 'Seguridad', description: 'Configuraciones de seguridad', icon: 'Shield', color: 'red', order: 2, isActive: true },
+        { id: 'business', name: 'Negocio', description: 'Configuraciones de negocio', icon: 'DollarSign', color: 'green', order: 3, isActive: true },
+        { id: 'notifications', name: 'Notificaciones', description: 'Configuraciones de notificaciones', icon: 'Bell', color: 'yellow', order: 4, isActive: true },
+      ])
     }
   }
 
@@ -82,16 +98,32 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
     try {
       const info = await configService.getSystemInfo()
       setSystemInfo(info)
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error cargando información del sistema:', error)
+      // Si falla, usar información por defecto
+      setSystemInfo({
+        version: '1.0.0',
+        environment: process.env.NODE_ENV || 'development',
+        database: 'PostgreSQL',
+        server: 'Node.js',
+        uptime: 0,
+        lastUpdate: new Date(),
+        configCount: 0,
+        lastBackup: new Date()
+      })
     }
   }
 
   // Cargar datos iniciales
   useEffect(() => {
-    loadConfigs(activeTab)
-    loadCategories()
-    loadSystemInfo()
+    // Cargar en paralelo pero manejar errores individualmente
+    Promise.allSettled([
+      loadConfigs(activeTab),
+      loadCategories(),
+      loadSystemInfo()
+    ]).then(() => {
+      // Todos los datos se cargaron (o fallaron silenciosamente)
+    })
   }, [activeTab])
 
   // Actualizar configuración
@@ -227,7 +259,7 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
         return (
           <div className="space-y-2">
             {Array.isArray(config.value) ? config.value.map((item, index) => (
-              <div key={index} className="flex items-center space-x-2">
+              <div key={`${config.key}-item-${index}`} className="flex items-center space-x-2">
                 <Input
                   value={item}
                   onChange={(e) => {
@@ -366,7 +398,7 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
       {validation && (
         <div className="space-y-2">
           {validation.errors.map((error, index) => (
-            <Alert key={index} variant="destructive">
+            <Alert key={`error-${error.key || index}`} variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>
                 <strong>{error.key}:</strong> {error.message}
@@ -374,7 +406,7 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
             </Alert>
           ))}
           {validation.warnings.map((warning, index) => (
-            <Alert key={index} variant="default">
+            <Alert key={`warning-${warning.key || index}`} variant="default">
               <Info className="h-4 w-4" />
               <AlertDescription>
                 <strong>{warning.key}:</strong> {warning.message}
@@ -484,8 +516,8 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
         </TabsList>
 
         {/* Contenido de cada pestaña */}
-        {categories.map((category) => (
-          <TabsContent key={category.id} value={category.id}>
+        {categories.map((category, categoryIndex) => (
+          <TabsContent key={`category-${category.id || categoryIndex}`} value={category.id}>
             <div className="space-y-4">
               {loading ? (
                 <div className="flex items-center justify-center h-32">
@@ -498,8 +530,8 @@ export function SystemConfigDashboard({ className }: SystemConfigDashboardProps)
                 <div className="grid gap-4">
                   {configs
                     .filter(config => config.category === category.id)
-                    .map((config) => (
-                      <Card key={config.key}>
+                    .map((config, configIndex) => (
+                      <Card key={`config-${config.key || configIndex}`}>
                         <CardHeader>
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">

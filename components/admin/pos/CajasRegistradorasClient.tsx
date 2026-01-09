@@ -24,6 +24,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api-client"
 
 interface POSRegister {
   id: string
@@ -70,28 +71,26 @@ export function CajasRegistradorasClient() {
   const loadRegisters = async () => {
     setIsLoading(true)
     try {
-      // Simular carga de datos - en producción sería una llamada a la API
-      const mockRegisters: POSRegister[] = [
-        {
-          id: '1',
-          name: 'Caja Principal',
-          location: 'Sede Principal',
-          status: 'inactive',
-          todaySales: 0,
-          assignedUsers: 0,
-          isOpen: false
-        },
-        {
-          id: '2',
-          name: 'Caja Secundaria',
-          location: 'Sede Norte',
-          status: 'not_configured',
-          todaySales: 0,
-          assignedUsers: 0,
-          isOpen: false
-        }
-      ]
-      setRegisters(mockRegisters)
+      const response = await apiClient.getPOSRegisters()
+      if (response.success && response.registers) {
+        // Transformar datos del backend al formato del frontend
+        const transformedRegisters: POSRegister[] = response.registers.map((reg: any) => ({
+          id: reg.id.toString(),
+          name: reg.name,
+          location: reg.location || '',
+          status: reg.is_active ? (reg.active_sessions > 0 ? 'active' : 'inactive') : 'inactive',
+          todaySales: 0, // Se puede calcular desde las ventas del día
+          assignedUsers: parseInt(reg.user_count) || 0,
+          isOpen: (reg.active_sessions || 0) > 0
+        }))
+        setRegisters(transformedRegisters)
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudieron cargar las cajas registradoras",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
       console.error('Error loading registers:', error)
       toast({
@@ -106,45 +105,61 @@ export function CajasRegistradorasClient() {
 
   const loadSessions = async () => {
     try {
-      // Simular carga de sesiones
-      const mockSessions: POSSession[] = []
-      setSessions(mockSessions)
+      const response = await apiClient.getActivePOSSessions()
+      if (response.success && response.sessions) {
+        // Transformar datos del backend al formato del frontend
+        const transformedSessions: POSSession[] = response.sessions.map((session: any) => ({
+          id: session.id.toString(),
+          registerId: session.register_id.toString(),
+          userId: session.user_id.toString(),
+          userName: session.user_name || 'Usuario',
+          startTime: session.opened_at,
+          endTime: session.closed_at,
+          status: session.is_active ? 'open' : 'closed',
+          totalSales: parseFloat(session.total_sales) || 0
+        }))
+        setSessions(transformedSessions)
+      }
     } catch (error) {
       console.error('Error loading sessions:', error)
     }
   }
 
   const createRegister = async () => {
-    if (!newRegister.name || !newRegister.location) {
+    if (!newRegister.name) {
       toast({
         title: "Error",
-        description: "Por favor completa todos los campos requeridos",
+        description: "El nombre de la caja es requerido",
         variant: "destructive"
       })
       return
     }
 
     try {
-      const newId = (registers.length + 1).toString()
-      const newRegisterData: POSRegister = {
-        id: newId,
+      const response = await apiClient.createPOSRegister({
         name: newRegister.name,
-        location: newRegister.location,
-        status: 'inactive',
-        todaySales: 0,
-        assignedUsers: 0,
-        isOpen: false
-      }
-
-      setRegisters([...registers, newRegisterData])
-      setNewRegister({ name: '', location: '', description: '' })
-      setShowCreateDialog(false)
-      
-      toast({
-        title: "Éxito",
-        description: "Caja registradora creada exitosamente"
+        location: newRegister.location || undefined
       })
+
+      if (response.success && response.register) {
+        // Recargar la lista de cajas
+        await loadRegisters()
+        setNewRegister({ name: '', location: '', description: '' })
+        setShowCreateDialog(false)
+        
+        toast({
+          title: "Éxito",
+          description: "Caja registradora creada exitosamente"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudo crear la caja registradora",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
+      console.error('Error creating register:', error)
       toast({
         title: "Error",
         description: "No se pudo crear la caja registradora",
@@ -155,32 +170,26 @@ export function CajasRegistradorasClient() {
 
   const openSession = async (registerId: string) => {
     try {
-      // Simular apertura de sesión
-      const sessionId = `session_${Date.now()}`
-      const newSession: POSSession = {
-        id: sessionId,
-        registerId,
-        userId: 'current_user',
-        userName: 'Usuario Actual',
-        startTime: new Date().toISOString(),
-        status: 'open',
-        totalSales: 0
+      const response = await apiClient.openPOSSession(parseInt(registerId), 0)
+
+      if (response.success && response.session) {
+        // Recargar cajas y sesiones
+        await loadRegisters()
+        await loadSessions()
+        
+        toast({
+          title: "Sesión Abierta",
+          description: "La sesión de caja se ha abierto correctamente"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudo abrir la sesión",
+          variant: "destructive"
+        })
       }
-
-      setSessions([...sessions, newSession])
-      
-      // Actualizar estado de la caja
-      setRegisters(registers.map(reg => 
-        reg.id === registerId 
-          ? { ...reg, isOpen: true, status: 'active' }
-          : reg
-      ))
-
-      toast({
-        title: "Sesión Abierta",
-        description: "La sesión de caja se ha abierto correctamente"
-      })
     } catch (error) {
+      console.error('Error opening session:', error)
       toast({
         title: "Error",
         description: "No se pudo abrir la sesión",
@@ -191,25 +200,40 @@ export function CajasRegistradorasClient() {
 
   const closeSession = async (registerId: string) => {
     try {
-      // Simular cierre de sesión
-      setSessions(sessions.map(session => 
-        session.registerId === registerId 
-          ? { ...session, status: 'closed', endTime: new Date().toISOString() }
-          : session
-      ))
+      // Buscar la sesión activa de esta caja
+      const activeSession = sessions.find(s => s.registerId === registerId && s.status === 'open')
+      
+      if (!activeSession) {
+        toast({
+          title: "Error",
+          description: "No hay una sesión activa para cerrar",
+          variant: "destructive"
+        })
+        return
+      }
 
-      // Actualizar estado de la caja
-      setRegisters(registers.map(reg => 
-        reg.id === registerId 
-          ? { ...reg, isOpen: false, status: 'inactive' }
-          : reg
-      ))
+      // Solicitar el monto de cierre (por ahora usamos 0, se puede mejorar con un diálogo)
+      const closingAmount = 0
+      const response = await apiClient.closePOSSession(parseInt(activeSession.id), closingAmount)
 
-      toast({
-        title: "Sesión Cerrada",
-        description: "La sesión de caja se ha cerrado correctamente"
-      })
+      if (response.success && response.session) {
+        // Recargar cajas y sesiones
+        await loadRegisters()
+        await loadSessions()
+        
+        toast({
+          title: "Sesión Cerrada",
+          description: "La sesión de caja se ha cerrado correctamente"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudo cerrar la sesión",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
+      console.error('Error closing session:', error)
       toast({
         title: "Error",
         description: "No se pudo cerrar la sesión",
@@ -220,12 +244,25 @@ export function CajasRegistradorasClient() {
 
   const deleteRegister = async (registerId: string) => {
     try {
-      setRegisters(registers.filter(reg => reg.id !== registerId))
-      toast({
-        title: "Caja Eliminada",
-        description: "La caja registradora ha sido eliminada"
-      })
+      const response = await apiClient.deletePOSRegister(parseInt(registerId))
+
+      if (response.success) {
+        // Recargar la lista de cajas
+        await loadRegisters()
+        
+        toast({
+          title: "Caja Eliminada",
+          description: "La caja registradora ha sido eliminada exitosamente"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudo eliminar la caja",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
+      console.error('Error deleting register:', error)
       toast({
         title: "Error",
         description: "No se pudo eliminar la caja",
@@ -443,15 +480,18 @@ export function CajasRegistradorasClient() {
                   <Settings className="w-4 h-4 mr-2" />
                   Configurar
                 </Button>
-                {register.status === 'not_configured' && (
-                  <Button 
-                    size="sm" 
-                    variant="destructive" 
-                    onClick={() => deleteRegister(register.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                )}
+                <Button 
+                  size="sm" 
+                  variant="destructive" 
+                  onClick={() => {
+                    if (confirm('¿Estás seguro de que deseas eliminar esta caja registradora?')) {
+                      deleteRegister(register.id)
+                    }
+                  }}
+                  disabled={register.isOpen}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -489,7 +529,12 @@ export function CajasRegistradorasClient() {
       </Card>
 
       {/* Dialog de Sesiones */}
-      <Dialog open={showSessionDialog} onOpenChange={setShowSessionDialog}>
+      <Dialog open={showSessionDialog} onOpenChange={(open) => {
+        setShowSessionDialog(open)
+        if (open) {
+          loadSessions()
+        }
+      }}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle>Sesiones de Caja</DialogTitle>
@@ -505,24 +550,35 @@ export function CajasRegistradorasClient() {
               </div>
             ) : (
               <div className="space-y-2">
-                {sessions.map((session) => (
-                  <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <p className="font-medium">{session.userName}</p>
-                      <p className="text-sm text-gray-500">
-                        Iniciada: {new Date(session.startTime).toLocaleString()}
-                      </p>
+                {sessions.map((session) => {
+                  const register = registers.find(r => r.id === session.registerId)
+                  return (
+                    <div key={session.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div>
+                        <p className="font-medium">{session.userName}</p>
+                        <p className="text-sm text-gray-500">
+                          Caja: {register?.name || 'N/A'}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Iniciada: {new Date(session.startTime).toLocaleString()}
+                        </p>
+                        {session.endTime && (
+                          <p className="text-sm text-gray-500">
+                            Cerrada: {new Date(session.endTime).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={session.status === 'open' ? 'default' : 'secondary'}>
+                          {session.status === 'open' ? 'Abierta' : 'Cerrada'}
+                        </Badge>
+                        <p className="text-sm text-gray-500 mt-2">
+                          Ventas: ${session.totalSales.toLocaleString()}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <Badge variant={session.status === 'open' ? 'default' : 'secondary'}>
-                        {session.status === 'open' ? 'Abierta' : 'Cerrada'}
-                      </Badge>
-                      <p className="text-sm text-gray-500">
-                        Ventas: ${session.totalSales.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

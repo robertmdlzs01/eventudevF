@@ -13,7 +13,133 @@ const authenticateWebhook = (req, res, next) => {
   next();
 };
 
-// Crear pago
+// Procesar pago con tarjeta de crédito directamente
+router.post('/process-payment', async (req, res) => {
+  try {
+    const {
+      amount,
+      description,
+      payment = "credit_card",
+      cc,
+      name,
+      email,
+      phone,
+      document_type,
+      number, // número de tarjeta
+      expiration, // fecha de expiración (MM/YY)
+      cvv,
+      dues, // cuotas
+      eventId,
+      ticketTypeId,
+      quantity,
+      customerId
+    } = req.body;
+
+    // Validar datos requeridos
+    if (!amount || !description) {
+      return res.status(400).json({
+        success: false,
+        message: 'Datos de pago incompletos: amount y description son requeridos'
+      });
+    }
+
+    if (payment === "credit_card" && (!number || !expiration || !cvv || !name || !email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Datos de tarjeta incompletos'
+      });
+    }
+
+    // Procesar pago con Cobru
+    const result = await cobruService.processPayment({
+      amount,
+      description,
+      payment,
+      cc,
+      name,
+      email,
+      phone,
+      document_type,
+      number,
+      expiration,
+      cvv,
+      dues
+    });
+
+    if (result.success) {
+      // Guardar transacción en la base de datos
+      try {
+        const transactionId = result.transactionId || `COBRU-${Date.now()}`;
+        
+        await db.query(`
+          INSERT INTO cobru_payments (
+            transaction_id, amount, currency, description, 
+            customer_email, customer_name, customer_phone,
+            event_id, ticket_type_id, quantity, customer_id,
+            status, payment_url, payment_method, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())
+          RETURNING id
+        `, [
+          transactionId,
+          amount,
+          'COP',
+          description,
+          email,
+          name,
+          phone || null,
+          eventId || null,
+          ticketTypeId || null,
+          quantity || 1,
+          customerId || null,
+          'approved', // Si el pago fue exitoso
+          result.url || null,
+          'credit_card',
+        ]);
+
+        // Si hay datos del evento, actualizar inventario
+        if (eventId && ticketTypeId && quantity) {
+          try {
+            await cobruService.updateTicketInventory(ticketTypeId, eventId, quantity);
+          } catch (inventoryError) {
+            console.error('Error actualizando inventario:', inventoryError);
+          }
+        }
+
+      } catch (dbError) {
+        console.error('Error guardando transacción:', dbError);
+        // No fallar la respuesta si hay error en la BD
+      }
+
+      res.json({
+        success: true,
+        message: 'Pago procesado exitosamente',
+        data: {
+          transactionId: result.transactionId,
+          url: result.url,
+          amount,
+          status: 'approved'
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: result.error || 'Error procesando el pago',
+        error: result.error,
+        error_axios: result.error_axios
+      });
+    }
+
+  } catch (error) {
+    console.error('Error procesando pago:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor',
+      error: error.message
+    });
+  }
+});
+
+// Crear pago (link de pago sin procesar)
 router.post('/create-payment', async (req, res) => {
   try {
     const {
@@ -24,27 +150,23 @@ router.post('/create-payment', async (req, res) => {
       customerName,
       customerPhone,
       orderId,
-      items = []
+      items = [],
+      expiration_days = 1
     } = req.body;
 
     // Validar datos requeridos
-    if (!amount || !description || !customerEmail) {
+    if (!amount || !description) {
       return res.status(400).json({
         success: false,
         message: 'Datos de pago incompletos'
       });
     }
 
-    // Crear pago con Cobru
-    const result = await cobruService.createPayment({
+    // Crear Cobru (link de pago)
+    const result = await cobruService.createCobru({
       amount,
-      currency,
       description,
-      customerEmail,
-      customerName,
-      customerPhone,
-      orderId,
-      items
+      expiration_days
     });
 
     if (result.success) {
@@ -57,16 +179,16 @@ router.post('/create-payment', async (req, res) => {
             order_id, status, payment_url, created_at
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
         `, [
-          result.data.id,
+          result.data.id || `COBRU-${Date.now()}`,
           amount,
           currency,
           description,
-          customerEmail,
-          customerName,
-          customerPhone,
-          orderId,
+          customerEmail || null,
+          customerName || null,
+          customerPhone || null,
+          orderId || null,
           'pending',
-          result.paymentUrl
+          result.url
         ]);
       } catch (dbError) {
         console.error('Error guardando transacción:', dbError);
@@ -76,7 +198,7 @@ router.post('/create-payment', async (req, res) => {
       res.json({
         success: true,
         data: {
-          paymentUrl: result.paymentUrl,
+          paymentUrl: result.url,
           transactionId: result.data.id,
           amount,
           currency,
@@ -86,7 +208,9 @@ router.post('/create-payment', async (req, res) => {
     } else {
       res.status(400).json({
         success: false,
-        message: result.error
+        message: result.error || 'Error creando el link de pago',
+        error: result.error,
+        error_axios: result.error_axios
       });
     }
 
@@ -94,7 +218,8 @@ router.post('/create-payment', async (req, res) => {
     console.error('Error creando pago:', error);
     res.status(500).json({
       success: false,
-      message: 'Error interno del servidor'
+      message: 'Error interno del servidor',
+      error: error.message
     });
   }
 });

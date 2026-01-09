@@ -1877,6 +1877,56 @@ async function handleCreatePhysicalTicketBatch(req, res) {
   }
 }
 
+// Get single physical ticket batch
+router.get('/physical-tickets/:id', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleGetPhysicalTicket(req, res))
+    })
+  }
+  
+  return handleGetPhysicalTicket(req, res)
+})
+
+async function handleGetPhysicalTicket(req, res) {
+  try {
+    const { id } = req.params
+
+    const query = `
+      SELECT pt.id, pt.batch_number, pt.quantity, pt.printed, pt.sold, pt.price, pt.sales_point, 
+             pt.status, pt.created_at, pt.printed_at, pt.distributed_at, pt.notes,
+             e.title as event_name, e.id as event_id, e.date as event_date, e.venue as event_venue,
+             tt.name as ticket_type, tt.id as ticket_type_id
+      FROM physical_tickets pt
+      LEFT JOIN events e ON pt.event_id = e.id
+      LEFT JOIN ticket_types tt ON pt.ticket_type_id = tt.id
+      WHERE pt.id = $1
+    `
+
+    const result = await db.query(query, [id])
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Lote de boletas físicas no encontrado' 
+      })
+    }
+
+    const ticket = result.rows[0]
+    ticket.remaining = ticket.quantity - ticket.sold
+
+    res.json({
+      success: true,
+      data: ticket
+    })
+
+  } catch (error) {
+    console.error('Error getting physical ticket:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
 // Update physical ticket status (print/distribute)
 router.put('/physical-tickets/:id/status', async (req, res) => {
   // Skip auth check for development
@@ -1928,6 +1978,172 @@ async function handleUpdatePhysicalTicketStatus(req, res) {
 
   } catch (error) {
     console.error('Error updating physical ticket status:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
+// Update physical ticket batch
+router.put('/physical-tickets/:id', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleUpdatePhysicalTicket(req, res))
+    })
+  }
+  
+  return handleUpdatePhysicalTicket(req, res)
+})
+
+async function handleUpdatePhysicalTicket(req, res) {
+  try {
+    const { id } = req.params
+    const { quantity, price, sales_point, notes } = req.body
+
+    // Verificar que el lote existe
+    const checkQuery = await db.query('SELECT id, sold, status FROM physical_tickets WHERE id = $1', [id])
+    
+    if (checkQuery.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Lote de boletas no encontrado' 
+      })
+    }
+
+    const existingTicket = checkQuery.rows[0]
+
+    // Validar que no se pueda reducir la cantidad si ya hay boletos vendidos
+    if (quantity && parseInt(quantity) < existingTicket.sold) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `No se puede reducir la cantidad. Ya se han vendido ${existingTicket.sold} boletos` 
+      })
+    }
+
+    // Validar que no se pueda editar si está distribuido o completado
+    if (existingTicket.status === 'distributed' || existingTicket.status === 'completed') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No se puede editar un lote que ya está distribuido o completado' 
+      })
+    }
+
+    const updateFields = []
+    const params = []
+    let paramCount = 1
+
+    if (quantity !== undefined) {
+      updateFields.push(`quantity = $${paramCount}`)
+      params.push(parseInt(quantity))
+      paramCount++
+    }
+
+    if (price !== undefined) {
+      updateFields.push(`price = $${paramCount}`)
+      params.push(parseFloat(price))
+      paramCount++
+    }
+
+    if (sales_point !== undefined) {
+      updateFields.push(`sales_point = $${paramCount}`)
+      params.push(sales_point)
+      paramCount++
+    }
+
+    if (notes !== undefined) {
+      updateFields.push(`notes = $${paramCount}`)
+      params.push(notes)
+      paramCount++
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No hay campos para actualizar' 
+      })
+    }
+
+    updateFields.push(`updated_at = CURRENT_TIMESTAMP`)
+    params.push(id)
+
+    const updateQuery = `
+      UPDATE physical_tickets 
+      SET ${updateFields.join(', ')}
+      WHERE id = $${paramCount}
+      RETURNING *
+    `
+
+    const result = await db.query(updateQuery, params)
+
+    res.json({
+      success: true,
+      data: result.rows[0]
+    })
+
+  } catch (error) {
+    console.error('Error updating physical ticket:', error)
+    res.status(500).json({ success: false, error: 'Error interno del servidor' })
+  }
+}
+
+// Delete physical ticket batch
+router.delete('/physical-tickets/:id', async (req, res) => {
+  // Skip auth check for development
+  if (process.env.NODE_ENV === 'production') {
+    return auth(req, res, () => {
+      return requireAdmin(req, res, () => handleDeletePhysicalTicket(req, res))
+    })
+  }
+  
+  return handleDeletePhysicalTicket(req, res)
+})
+
+async function handleDeletePhysicalTicket(req, res) {
+  try {
+    const { id } = req.params
+
+    // Verificar que el lote existe y obtener información
+    const checkQuery = await db.query(`
+      SELECT id, sold, status, distributed_at 
+      FROM physical_tickets 
+      WHERE id = $1
+    `, [id])
+    
+    if (checkQuery.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Lote de boletas no encontrado' 
+      })
+    }
+
+    const ticket = checkQuery.rows[0]
+
+    // Validar que no se pueda eliminar si hay boletos vendidos
+    if (ticket.sold > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: `No se puede eliminar un lote con boletos vendidos (${ticket.sold} vendidos)` 
+      })
+    }
+
+    // Validar que no se pueda eliminar si está distribuido
+    if (ticket.status === 'distributed' || ticket.distributed_at) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No se puede eliminar un lote que ya está distribuido' 
+      })
+    }
+
+    // Eliminar el lote
+    const result = await db.query('DELETE FROM physical_tickets WHERE id = $1 RETURNING id', [id])
+
+    res.json({
+      success: true,
+      message: 'Lote de boletas eliminado exitosamente',
+      data: { id: result.rows[0].id }
+    })
+
+  } catch (error) {
+    console.error('Error deleting physical ticket:', error)
     res.status(500).json({ success: false, error: 'Error interno del servidor' })
   }
 }
@@ -2190,16 +2406,7 @@ async function handleResendVirtualTicket(req, res) {
 }
 
 // Media library endpoints
-router.get('/media', async (req, res) => {
-  // Skip auth check for development
-  if (process.env.NODE_ENV === 'production') {
-    return auth(req, res, () => {
-      return requireAdmin(req, res, () => handleGetMedia(req, res))
-    })
-  }
-  
-  return handleGetMedia(req, res)
-})
+router.get('/media', auth, requireAdmin, handleGetMedia)
 
 async function handleGetMedia(req, res) {
   try {
@@ -2267,7 +2474,7 @@ async function handleGetMedia(req, res) {
 }
 
 // Upload media files
-router.post('/media/upload', upload.array('files', 10), (err, req, res, next) => {
+router.post('/media/upload', auth, requireAdmin, upload.array('files', 10), (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     console.error('Multer error:', err);
     return res.status(400).json({ 
@@ -2282,16 +2489,7 @@ router.post('/media/upload', upload.array('files', 10), (err, req, res, next) =>
     });
   }
   next();
-}, async (req, res) => {
-  // Skip auth check for development
-  if (process.env.NODE_ENV === 'production') {
-    return auth(req, res, () => {
-      return requireAdmin(req, res, () => handleUploadMedia(req, res))
-    })
-  }
-  
-  return handleUploadMedia(req, res)
-})
+}, handleUploadMedia)
 
 async function handleUploadMedia(req, res) {
   try {
@@ -2299,46 +2497,125 @@ async function handleUploadMedia(req, res) {
     console.log('Files:', req.files);
     console.log('Body:', req.body);
     
+    // Verificar si la tabla existe
+    const tableCheck = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'media_files'
+      )
+    `);
+    
+    const tableExists = tableCheck.rows[0].exists;
+    
+    if (!tableExists) {
+      console.warn('Table media_files does not exist, checking for media table...');
+      
+      // Verificar si existe la tabla 'media' como alternativa
+      const mediaTableCheck = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' 
+          AND table_name = 'media'
+        )
+      `);
+      
+      if (!mediaTableCheck.rows[0].exists) {
+        return res.status(500).json({ 
+          success: false, 
+          error: 'Las tablas de medios no existen en la base de datos. Por favor, ejecuta las migraciones necesarias.' 
+        });
+      }
+    }
+    
     const uploadedFiles = []
     
-    if (req.files && req.files.length > 0) {
-      console.log(`Processing ${req.files.length} files`);
-      
-      for (const file of req.files) {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No se recibieron archivos' 
+      });
+    }
+    
+    console.log(`Processing ${req.files.length} files`);
+    
+    // Determinar qué tabla usar
+    const useMediaTable = !tableExists;
+    const tableName = useMediaTable ? 'media' : 'media_files';
+    
+    for (const file of req.files) {
+      try {
         console.log('Processing file:', file.originalname);
         
-        const fileType = getFileType(file.originalname)
-        const fileUrl = `/uploads/${file.filename}`
+        const fileType = getFileType(file.originalname);
+        const fileUrl = `/uploads/${file.filename}`;
         
         console.log('File type:', fileType);
         console.log('File URL:', fileUrl);
         
-        const result = await db.query(`
-          INSERT INTO media_files (name, original_name, type, size, url, upload_date)
-          VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-          RETURNING id, name, original_name, type, size, url, upload_date
-        `, [
-          file.filename,
-          file.originalname,
-          fileType,
-          file.size,
-          fileUrl
-        ])
+        let result;
+        
+        if (useMediaTable) {
+          // Usar tabla 'media'
+          result = await db.query(`
+            INSERT INTO media (name, original_name, type, size, url, folder, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id, name, original_name, type, size, url, folder, created_at
+          `, [
+            file.filename,
+            file.originalname,
+            fileType,
+            file.size,
+            fileUrl,
+            req.body.folder || null
+          ]);
+          
+          uploadedFiles.push({
+            id: result.rows[0].id,
+            name: result.rows[0].name,
+            original_name: result.rows[0].original_name,
+            type: result.rows[0].type,
+            size: result.rows[0].size,
+            url: result.rows[0].url,
+            upload_date: result.rows[0].created_at
+          });
+        } else {
+          // Usar tabla 'media_files'
+          result = await db.query(`
+            INSERT INTO media_files (name, original_name, type, size, url, upload_date)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+            RETURNING id, name, original_name, type, size, url, upload_date
+          `, [
+            file.filename,
+            file.originalname,
+            fileType,
+            file.size,
+            fileUrl
+          ]);
+
+          uploadedFiles.push({
+            id: result.rows[0].id,
+            name: result.rows[0].name,
+            original_name: result.rows[0].original_name,
+            type: result.rows[0].type,
+            size: result.rows[0].size,
+            url: result.rows[0].url,
+            upload_date: result.rows[0].upload_date
+          });
+        }
 
         console.log('Database result:', result.rows[0]);
-
-        uploadedFiles.push({
-          id: result.rows[0].id,
-          name: result.rows[0].name,
-          original_name: result.rows[0].original_name,
-          type: result.rows[0].type,
-          size: result.rows[0].size,
-          url: result.rows[0].url,
-          upload_date: result.rows[0].upload_date
-        })
+      } catch (fileError) {
+        console.error(`Error processing file ${file.originalname}:`, fileError);
+        // Continuar con el siguiente archivo
       }
-    } else {
-      console.log('No files received');
+    }
+
+    if (uploadedFiles.length === 0) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'No se pudo procesar ningún archivo' 
+      });
     }
 
     console.log('Uploaded files:', uploadedFiles);
@@ -2350,21 +2627,15 @@ async function handleUploadMedia(req, res) {
 
   } catch (error) {
     console.error('Error uploading media:', error)
-    res.status(500).json({ success: false, error: 'Error interno del servidor: ' + error.message })
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor: ' + (error.message || 'Error desconocido') 
+    })
   }
 }
 
 // Get media folders
-router.get('/media/folders', async (req, res) => {
-  // Skip auth check for development
-  if (process.env.NODE_ENV === 'production') {
-    return auth(req, res, () => {
-      return requireAdmin(req, res, () => handleGetMediaFolders(req, res))
-    })
-  }
-  
-  return handleGetMediaFolders(req, res)
-})
+router.get('/media/folders', auth, requireAdmin, handleGetMediaFolders)
 
 async function handleGetMediaFolders(req, res) {
   try {

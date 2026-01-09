@@ -27,6 +27,7 @@ import {
   Plus
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { apiClient } from "@/lib/api-client"
 
 interface Refund {
   id: string
@@ -73,7 +74,7 @@ export function ReembolsosClient() {
   // Cargar datos iniciales
   useEffect(() => {
     loadRefunds()
-  }, [])
+  }, [statusFilter, dateFrom, dateTo])
 
   // Filtrar reembolsos
   useEffect(() => {
@@ -105,35 +106,37 @@ export function ReembolsosClient() {
   const loadRefunds = async () => {
     setIsLoading(true)
     try {
-      // Simular carga de datos - en producción sería una llamada a la API
-      const mockRefunds: Refund[] = [
-        {
-          id: '1',
-          orderNumber: 'ORD-001',
-          customerName: 'Juan Pérez',
-          customerEmail: 'juan@email.com',
-          amount: 150000,
-          status: 'pending',
-          reason: 'Cancelación del evento',
-          method: 'Método original',
-          createdAt: '2024-02-15T10:30:00Z',
-          notes: 'Cliente solicitó reembolso por cancelación del evento'
-        },
-        {
-          id: '2',
-          orderNumber: 'ORD-002',
-          customerName: 'María García',
-          customerEmail: 'maria@email.com',
-          amount: 75000,
-          status: 'approved',
-          reason: 'Error en la compra',
-          method: 'Transferencia',
-          createdAt: '2024-02-14T15:45:00Z',
-          processedAt: '2024-02-14T16:00:00Z',
-          notes: 'Error en el procesamiento del pago'
-        }
-      ]
-      setRefunds(mockRefunds)
+      const params: any = {}
+      if (statusFilter !== 'all') params.status = statusFilter
+      if (searchTerm) params.search = searchTerm
+      if (dateFrom) params.dateFrom = dateFrom
+      if (dateTo) params.dateTo = dateTo
+      
+      const response = await apiClient.getRefunds(params)
+      
+      if (response.success && response.refunds) {
+        // Transformar datos del backend al formato del frontend
+        const transformedRefunds: Refund[] = response.refunds.map((refund: any) => ({
+          id: refund.id.toString(),
+          orderNumber: refund.order_number || refund.sale_order_number || `REF-${refund.id}`,
+          customerName: refund.customer_name,
+          customerEmail: refund.customer_email || '',
+          amount: parseFloat(refund.amount),
+          status: refund.status,
+          reason: refund.reason,
+          method: refund.refund_method || 'N/A',
+          createdAt: refund.created_at || refund.requested_at,
+          processedAt: refund.processed_at,
+          notes: refund.notes
+        }))
+        setRefunds(transformedRefunds)
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudieron cargar los reembolsos",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
       console.error('Error loading refunds:', error)
       toast({
@@ -157,34 +160,57 @@ export function ReembolsosClient() {
     }
 
     try {
-      const newRefund: Refund = {
-        id: (refunds.length + 1).toString(),
-        orderNumber: refundForm.orderNumber,
-        customerName: 'Cliente', // En producción se obtendría de la orden
-        customerEmail: 'cliente@email.com',
-        amount: refundForm.amount,
-        status: 'pending',
-        reason: refundForm.reason,
-        method: refundForm.method,
-        createdAt: new Date().toISOString(),
-        notes: refundForm.notes
+      // Buscar la venta por order_number (necesitarías implementar esto o pasar sale_id)
+      // Por ahora, asumimos que el orderNumber contiene el sale_id o podemos buscarlo
+      // Por simplicidad, requerimos que se pase el sale_id en el formulario
+      // TODO: Mejorar para buscar venta por order_number
+      
+      const saleId = parseInt(refundForm.orderNumber) || 0
+      
+      if (!saleId) {
+        toast({
+          title: "Error",
+          description: "Por favor ingresa un ID de venta válido",
+          variant: "destructive"
+        })
+        return
       }
 
-      setRefunds([newRefund, ...refunds])
-      setRefundForm({
-        orderNumber: "",
-        amount: 0,
-        reason: "",
-        method: "",
-        notes: ""
+      const response = await apiClient.createRefund({
+        sale_id: saleId,
+        order_number: refundForm.orderNumber,
+        customer_name: 'Cliente', // TODO: Obtener de la venta
+        amount: refundForm.amount,
+        reason: refundForm.reason,
+        refund_method: refundForm.method,
+        notes: refundForm.notes
       })
-      setShowCreateDialog(false)
-      
-      toast({
-        title: "Reembolso Creado",
-        description: "La solicitud de reembolso ha sido creada"
-      })
+
+      if (response.success && response.refund) {
+        // Recargar la lista de reembolsos
+        await loadRefunds()
+        setRefundForm({
+          orderNumber: "",
+          amount: 0,
+          reason: "",
+          method: "",
+          notes: ""
+        })
+        setShowCreateDialog(false)
+        
+        toast({
+          title: "Reembolso Creado",
+          description: "La solicitud de reembolso ha sido creada exitosamente"
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response.error || "No se pudo crear el reembolso",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
+      console.error('Error creating refund:', error)
       toast({
         title: "Error",
         description: "No se pudo crear el reembolso",
@@ -193,23 +219,40 @@ export function ReembolsosClient() {
     }
   }
 
-  const processRefund = async (refundId: string, action: 'approve' | 'reject') => {
+  const processRefund = async (refundId: string, action: 'approve' | 'reject' | 'process') => {
     try {
-      setRefunds(refunds.map(refund => 
-        refund.id === refundId 
-          ? { 
-              ...refund, 
-              status: action === 'approve' ? 'approved' : 'rejected',
-              processedAt: new Date().toISOString()
-            }
-          : refund
-      ))
+      let response
+      
+      if (action === 'approve') {
+        response = await apiClient.approveRefund(parseInt(refundId))
+      } else if (action === 'reject') {
+        const reason = prompt('Ingresa la razón del rechazo:')
+        if (!reason) return
+        response = await apiClient.rejectRefund(parseInt(refundId), reason)
+      } else if (action === 'process') {
+        response = await apiClient.processRefund(parseInt(refundId))
+      }
 
-      toast({
-        title: action === 'approve' ? "Reembolso Aprobado" : "Reembolso Rechazado",
-        description: `El reembolso ha sido ${action === 'approve' ? 'aprobado' : 'rechazado'}`
-      })
+      if (response && response.success) {
+        // Recargar la lista de reembolsos
+        await loadRefunds()
+        
+        toast({
+          title: action === 'approve' ? "Reembolso Aprobado" : 
+                 action === 'reject' ? "Reembolso Rechazado" : 
+                 "Reembolso Procesado",
+          description: `El reembolso ha sido ${action === 'approve' ? 'aprobado' : 
+                       action === 'reject' ? 'rechazado' : 'procesado'} exitosamente`
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: response?.error || "No se pudo procesar el reembolso",
+          variant: "destructive"
+        })
+      }
     } catch (error) {
+      console.error('Error processing refund:', error)
       toast({
         title: "Error",
         description: "No se pudo procesar el reembolso",
@@ -442,13 +485,15 @@ export function ReembolsosClient() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="order-number">Número de Orden</Label>
+                      <Label htmlFor="order-number">ID de Venta (Sale ID)</Label>
                       <Input 
                         id="order-number" 
-                        placeholder="ORD-001"
+                        type="number"
+                        placeholder="123"
                         value={refundForm.orderNumber}
                         onChange={(e) => setRefundForm({ ...refundForm, orderNumber: e.target.value })}
                       />
+                      <p className="text-xs text-gray-500 mt-1">Ingresa el ID de la venta a reembolsar</p>
                     </div>
                     
                     <div>
@@ -579,6 +624,15 @@ export function ReembolsosClient() {
                             <XCircle className="w-4 h-4" />
                           </Button>
                         </>
+                      )}
+                      {refund.status === 'approved' && (
+                        <Button 
+                          size="sm"
+                          variant="default"
+                          onClick={() => processRefund(refund.id, 'process')}
+                        >
+                          Procesar
+                        </Button>
                       )}
                     </div>
                   </TableCell>

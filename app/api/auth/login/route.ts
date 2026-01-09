@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Buscar usuario en Supabase
+    // Buscar usuario
     const { data: user, error } = await supabase
       .from('users')
       .select('*')

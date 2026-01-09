@@ -4,10 +4,7 @@ const requireRole = require('../middleware/requireRole');
 const { securityMonitoringService } = require('../services/securityMonitoringService');
 const router = express.Router();
 
-/**
- * Rutas para monitoreo de seguridad
- * Solo accesibles para administradores
- */
+
 
 // Obtener estadísticas de seguridad
 router.get('/stats', auth, requireRole(['admin']), async (req, res) => {

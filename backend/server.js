@@ -46,6 +46,7 @@ const cartRoutes = require("./routes/cart")
 const alertsRoutes = require("./routes/alerts")
 const configRoutes = require("./routes/config")
 const checkinRoutes = require("./routes/checkin")
+const refundsRoutes = require("./routes/refunds")
 const { sessionTimeout, updateActivity } = require("./middleware/session-timeout")
 const auditMiddleware = require("./middleware/auditMiddleware")
 const { require2FA } = require("./middleware/require2FA")
@@ -187,8 +188,22 @@ app.use((req, res, next) => {
 
 app.use(securityMonitoringMiddleware)
 
-app.use(express.json({ limit: "10mb" }))
-app.use(express.urlencoded({ extended: true, limit: "10mb" }))
+// JSON parser - excluir multipart/form-data
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    return next(); // Saltar JSON parser para multipart
+  }
+  express.json({ limit: "10mb" })(req, res, next);
+});
+
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    return next(); // Saltar urlencoded parser para multipart
+  }
+  express.urlencoded({ extended: true, limit: "10mb" })(req, res, next);
+});
 
 app.use('/images', express.static(path.join(__dirname, 'images')))
 app.use('/videos', express.static(path.join(__dirname, 'videos')))
@@ -264,6 +279,7 @@ app.use("/api/cart", cartRoutes)
 app.use("/api/alerts", alertsRoutes)
 app.use("/api/config", configRoutes)
 app.use("/api/checkin", checkinRoutes)
+app.use("/api/refunds", refundsRoutes)
 
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
 app.use((err, req, res, next) => {

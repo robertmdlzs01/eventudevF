@@ -18,6 +18,8 @@ backend/.env.local
 backend/.env.development.local
 backend/.env.test.local
 backend/.env.production.local
+backend/config.env
+backend/config.env.local
 
 # Logs
 *.log
