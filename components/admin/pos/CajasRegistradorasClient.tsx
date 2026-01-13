@@ -72,9 +72,10 @@ export function CajasRegistradorasClient() {
     setIsLoading(true)
     try {
       const response = await apiClient.getPOSRegisters()
-      if (response.success && response.registers) {
+      if (response.success && response.data) {
         // Transformar datos del backend al formato del frontend
-        const transformedRegisters: POSRegister[] = response.registers.map((reg: any) => ({
+        const registers = Array.isArray(response.data) ? response.data : (response.data.registers || [])
+        const transformedRegisters: POSRegister[] = registers.map((reg: any) => ({
           id: reg.id.toString(),
           name: reg.name,
           location: reg.location || '',
