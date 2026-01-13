@@ -71,11 +71,10 @@ export function CajasRegistradorasClient() {
   const loadRegisters = async () => {
     setIsLoading(true)
     try {
-      const response = await apiClient.getPOSRegisters()
-      if (response.success && response.data) {
+      const response = await apiClient.getPOSRegisters() as any
+      if (response.success && response.registers) {
         // Transformar datos del backend al formato del frontend
-        const registers = Array.isArray(response.data) ? response.data : (response.data.registers || [])
-        const transformedRegisters: POSRegister[] = registers.map((reg: any) => ({
+        const transformedRegisters: POSRegister[] = response.registers.map((reg: any) => ({
           id: reg.id.toString(),
           name: reg.name,
           location: reg.location || '',
@@ -106,7 +105,7 @@ export function CajasRegistradorasClient() {
 
   const loadSessions = async () => {
     try {
-      const response = await apiClient.getActivePOSSessions()
+      const response = await apiClient.getActivePOSSessions() as any
       if (response.success && response.sessions) {
         // Transformar datos del backend al formato del frontend
         const transformedSessions: POSSession[] = response.sessions.map((session: any) => ({
