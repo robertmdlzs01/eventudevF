@@ -184,7 +184,7 @@ export function ReembolsosClient() {
         reason: refundForm.reason,
         refund_method: refundForm.method,
         notes: refundForm.notes
-      })
+      }) as any
 
       if (response.success && response.refund) {
         // Recargar la lista de reembolsos
