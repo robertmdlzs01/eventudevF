@@ -139,7 +139,7 @@ export function CajasRegistradorasClient() {
       const response = await apiClient.createPOSRegister({
         name: newRegister.name,
         location: newRegister.location || undefined
-      })
+      }) as any
 
       if (response.success && response.register) {
         // Recargar la lista de cajas
@@ -170,7 +170,7 @@ export function CajasRegistradorasClient() {
 
   const openSession = async (registerId: string) => {
     try {
-      const response = await apiClient.openPOSSession(parseInt(registerId), 0)
+      const response = await apiClient.openPOSSession(parseInt(registerId), 0) as any
 
       if (response.success && response.session) {
         // Recargar cajas y sesiones
@@ -214,7 +214,7 @@ export function CajasRegistradorasClient() {
 
       // Solicitar el monto de cierre (por ahora usamos 0, se puede mejorar con un diálogo)
       const closingAmount = 0
-      const response = await apiClient.closePOSSession(parseInt(activeSession.id), closingAmount)
+      const response = await apiClient.closePOSSession(parseInt(activeSession.id), closingAmount) as any
 
       if (response.success && response.session) {
         // Recargar cajas y sesiones

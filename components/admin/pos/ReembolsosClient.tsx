@@ -112,7 +112,7 @@ export function ReembolsosClient() {
       if (dateFrom) params.dateFrom = dateFrom
       if (dateTo) params.dateTo = dateTo
       
-      const response = await apiClient.getRefunds(params)
+      const response = await apiClient.getRefunds(params) as any
       
       if (response.success && response.refunds) {
         // Transformar datos del backend al formato del frontend
