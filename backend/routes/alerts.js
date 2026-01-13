@@ -3,9 +3,35 @@ const router = express.Router();
 const { auth } = require('../middleware/auth');
 const { db } = require('../config/database-postgres');
 
+// Helper para verificar si la tabla alerts existe
+async function checkAlertsTableExists() {
+  try {
+    const result = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'alerts'
+      )
+    `);
+    return result.rows[0]?.exists || false;
+  } catch (error) {
+    console.warn('Error verificando existencia de tabla alerts:', error);
+    return false;
+  }
+}
+
 // Obtener todas las alertas
 router.get('/', auth, async (req, res) => {
   try {
+    // Verificar si la tabla existe
+    const tableExists = await checkAlertsTableExists();
+    if (!tableExists) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+
     const { type, category, priority, status, startDate, endDate, source } = req.query;
     
     let query = 'SELECT * FROM alerts WHERE 1=1';
@@ -80,9 +106,181 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-// Obtener alerta por ID
+// IMPORTANTE: Las rutas específicas (/stats, /realtime) deben ir ANTES de las rutas dinámicas (/:id)
+// para evitar que Express las capture con el parámetro :id
+
+// Obtener estadísticas de alertas
+router.get('/stats', auth, async (req, res) => {
+  try {
+    // Verificar si la tabla existe
+    const tableExists = await checkAlertsTableExists();
+    if (!tableExists) {
+      return res.json({
+        success: true,
+        data: {
+          total: 0,
+          active: 0,
+          acknowledged: 0,
+          resolved: 0,
+          dismissed: 0,
+          byType: {},
+          byCategory: {},
+          byPriority: {},
+          recent: []
+        }
+      });
+    }
+
+    // Total de alertas
+    const totalQuery = 'SELECT COUNT(*) as total FROM alerts';
+    const totalResult = await db.query(totalQuery);
+    const total = parseInt(totalResult.rows[0].total);
+    
+    // Alertas por estado
+    const statusQuery = `
+      SELECT status, COUNT(*) as count 
+      FROM alerts 
+      GROUP BY status
+    `;
+    const statusResult = await db.query(statusQuery);
+    const statusStats = statusResult.rows.reduce((acc, row) => {
+      acc[row.status] = parseInt(row.count);
+      return acc;
+    }, {});
+    
+    // Alertas por tipo
+    const typeQuery = `
+      SELECT type, COUNT(*) as count 
+      FROM alerts 
+      GROUP BY type
+    `;
+    const typeResult = await db.query(typeQuery);
+    const typeStats = typeResult.rows.reduce((acc, row) => {
+      acc[row.type] = parseInt(row.count);
+      return acc;
+    }, {});
+    
+    // Alertas por categoría
+    const categoryQuery = `
+      SELECT category, COUNT(*) as count 
+      FROM alerts 
+      GROUP BY category
+    `;
+    const categoryResult = await db.query(categoryQuery);
+    const categoryStats = categoryResult.rows.reduce((acc, row) => {
+      acc[row.category] = parseInt(row.count);
+      return acc;
+    }, {});
+    
+    // Alertas por prioridad
+    const priorityQuery = `
+      SELECT priority, COUNT(*) as count 
+      FROM alerts 
+      GROUP BY priority
+    `;
+    const priorityResult = await db.query(priorityQuery);
+    const priorityStats = priorityResult.rows.reduce((acc, row) => {
+      acc[row.priority] = parseInt(row.count);
+      return acc;
+    }, {});
+    
+    // Alertas recientes
+    const recentQuery = `
+      SELECT * FROM alerts 
+      ORDER BY created_at DESC 
+      LIMIT 10
+    `;
+    const recentResult = await db.query(recentQuery);
+    const recent = recentResult.rows.map(alert => ({
+      ...alert,
+      createdAt: new Date(alert.created_at),
+      updatedAt: new Date(alert.updated_at),
+      acknowledgedAt: alert.acknowledged_at ? new Date(alert.acknowledged_at) : null,
+      resolvedAt: alert.resolved_at ? new Date(alert.resolved_at) : null,
+      metadata: alert.metadata ? JSON.parse(alert.metadata) : null,
+      actions: alert.actions ? JSON.parse(alert.actions) : null
+    }));
+    
+    const stats = {
+      total,
+      active: statusStats.active || 0,
+      acknowledged: statusStats.acknowledged || 0,
+      resolved: statusStats.resolved || 0,
+      dismissed: statusStats.dismissed || 0,
+      byType: typeStats,
+      byCategory: categoryStats,
+      byPriority: priorityStats,
+      recent
+    };
+    
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Error obteniendo estadísticas de alertas:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// Obtener alertas en tiempo real
+router.get('/realtime', auth, async (req, res) => {
+  try {
+    // Verificar si la tabla existe
+    const tableExists = await checkAlertsTableExists();
+    if (!tableExists) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+
+    const query = `
+      SELECT * FROM alerts 
+      WHERE status = 'active' 
+      AND created_at >= NOW() - INTERVAL '1 hour'
+      ORDER BY created_at DESC
+    `;
+    
+    const result = await db.query(query);
+    const alerts = result.rows.map(alert => ({
+      ...alert,
+      createdAt: new Date(alert.created_at),
+      updatedAt: new Date(alert.updated_at),
+      acknowledgedAt: alert.acknowledged_at ? new Date(alert.acknowledged_at) : null,
+      resolvedAt: alert.resolved_at ? new Date(alert.resolved_at) : null,
+      metadata: alert.metadata ? JSON.parse(alert.metadata) : null,
+      actions: alert.actions ? JSON.parse(alert.actions) : null
+    }));
+    
+    res.json({
+      success: true,
+      data: alerts
+    });
+  } catch (error) {
+    console.error('Error obteniendo alertas en tiempo real:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error interno del servidor'
+    });
+  }
+});
+
+// Obtener alerta por ID (DEBE ir DESPUÉS de las rutas específicas)
 router.get('/:id', auth, async (req, res) => {
   try {
+    // Verificar si la tabla existe
+    const tableExists = await checkAlertsTableExists();
+    if (!tableExists) {
+      return res.status(404).json({
+        success: false,
+        message: 'Alerta no encontrada'
+      });
+    }
+
     const { id } = req.params;
     
     const query = 'SELECT * FROM alerts WHERE id = $1';
@@ -411,138 +609,6 @@ router.delete('/:id', auth, async (req, res) => {
     });
   } catch (error) {
     console.error('Error eliminando alerta:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
-  }
-});
-
-// Obtener estadísticas de alertas
-router.get('/stats', auth, async (req, res) => {
-  try {
-    // Total de alertas
-    const totalQuery = 'SELECT COUNT(*) as total FROM alerts';
-    const totalResult = await db.query(totalQuery);
-    const total = parseInt(totalResult.rows[0].total);
-    
-    // Alertas por estado
-    const statusQuery = `
-      SELECT status, COUNT(*) as count 
-      FROM alerts 
-      GROUP BY status
-    `;
-    const statusResult = await db.query(statusQuery);
-    const statusStats = statusResult.rows.reduce((acc, row) => {
-      acc[row.status] = parseInt(row.count);
-      return acc;
-    }, {});
-    
-    // Alertas por tipo
-    const typeQuery = `
-      SELECT type, COUNT(*) as count 
-      FROM alerts 
-      GROUP BY type
-    `;
-    const typeResult = await db.query(typeQuery);
-    const typeStats = typeResult.rows.reduce((acc, row) => {
-      acc[row.type] = parseInt(row.count);
-      return acc;
-    }, {});
-    
-    // Alertas por categoría
-    const categoryQuery = `
-      SELECT category, COUNT(*) as count 
-      FROM alerts 
-      GROUP BY category
-    `;
-    const categoryResult = await db.query(categoryQuery);
-    const categoryStats = categoryResult.rows.reduce((acc, row) => {
-      acc[row.category] = parseInt(row.count);
-      return acc;
-    }, {});
-    
-    // Alertas por prioridad
-    const priorityQuery = `
-      SELECT priority, COUNT(*) as count 
-      FROM alerts 
-      GROUP BY priority
-    `;
-    const priorityResult = await db.query(priorityQuery);
-    const priorityStats = priorityResult.rows.reduce((acc, row) => {
-      acc[row.priority] = parseInt(row.count);
-      return acc;
-    }, {});
-    
-    // Alertas recientes
-    const recentQuery = `
-      SELECT * FROM alerts 
-      ORDER BY created_at DESC 
-      LIMIT 10
-    `;
-    const recentResult = await db.query(recentQuery);
-    const recent = recentResult.rows.map(alert => ({
-      ...alert,
-      createdAt: new Date(alert.created_at),
-      updatedAt: new Date(alert.updated_at),
-      acknowledgedAt: alert.acknowledged_at ? new Date(alert.acknowledged_at) : null,
-      resolvedAt: alert.resolved_at ? new Date(alert.resolved_at) : null,
-      metadata: alert.metadata ? JSON.parse(alert.metadata) : null,
-      actions: alert.actions ? JSON.parse(alert.actions) : null
-    }));
-    
-    const stats = {
-      total,
-      active: statusStats.active || 0,
-      acknowledged: statusStats.acknowledged || 0,
-      resolved: statusStats.resolved || 0,
-      dismissed: statusStats.dismissed || 0,
-      byType: typeStats,
-      byCategory: categoryStats,
-      byPriority: priorityStats,
-      recent
-    };
-    
-    res.json({
-      success: true,
-      data: stats
-    });
-  } catch (error) {
-    console.error('Error obteniendo estadísticas de alertas:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor'
-    });
-  }
-});
-
-// Obtener alertas en tiempo real
-router.get('/realtime', auth, async (req, res) => {
-  try {
-    const query = `
-      SELECT * FROM alerts 
-      WHERE status = 'active' 
-      AND created_at >= NOW() - INTERVAL '1 hour'
-      ORDER BY created_at DESC
-    `;
-    
-    const result = await db.query(query);
-    const alerts = result.rows.map(alert => ({
-      ...alert,
-      createdAt: new Date(alert.created_at),
-      updatedAt: new Date(alert.updated_at),
-      acknowledgedAt: alert.acknowledged_at ? new Date(alert.acknowledged_at) : null,
-      resolvedAt: alert.resolved_at ? new Date(alert.resolved_at) : null,
-      metadata: alert.metadata ? JSON.parse(alert.metadata) : null,
-      actions: alert.actions ? JSON.parse(alert.actions) : null
-    }));
-    
-    res.json({
-      success: true,
-      data: alerts
-    });
-  } catch (error) {
-    console.error('Error obteniendo alertas en tiempo real:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor'

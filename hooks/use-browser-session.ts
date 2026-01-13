@@ -114,13 +114,30 @@ export function useBrowserSession({
     localStorage.removeItem("tab_closed_time")
   }
 
-  // Manejar cierre del navegador
-  const handleBrowserClose = () => {
+  // Manejar cierre del navegador (solo cuando realmente se cierra, no en recarga)
+  const handleBrowserClose = (event: BeforeUnloadEvent) => {
     if (!isAuthenticated) return
     
-    // Invalidar sesión inmediatamente
-    invalidateSession()
-    clearLocalSession()
+    // NO limpiar sesión en recarga - solo marcar para verificación posterior
+    // El evento beforeunload se dispara tanto en recarga como en cierre
+    // Usamos visibilitychange para detectar cierre real de pestaña
+    // Solo invalidar si realmente se está cerrando el navegador (no recarga)
+    const navigationType = (window.performance?.getEntriesByType('navigation')[0] as PerformanceNavigationTiming)?.type
+    if (navigationType === 'reload') {
+      // Es una recarga, no limpiar sesión
+      return
+    }
+    
+    // Solo invalidar si la pestaña estuvo oculta por más tiempo
+    const tabClosedTime = localStorage.getItem("tab_closed_time")
+    if (tabClosedTime) {
+      const timeClosed = Date.now() - parseInt(tabClosedTime)
+      if (timeClosed > TAB_TIMEOUT_MS) {
+        // La pestaña estuvo cerrada por más del timeout, invalidar
+        invalidateSession()
+        clearLocalSession()
+      }
+    }
   }
 
   // Detectar actividad del usuario
@@ -149,12 +166,14 @@ export function useBrowserSession({
     }
 
     // Eventos para detectar cierre del navegador
+    // NOTA: beforeunload y unload se disparan también en recarga (F5)
+    // Por eso NO limpiamos la sesión aquí, solo usamos visibilitychange
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      handleBrowserClose()
-      
-      // Mostrar mensaje de confirmación (opcional)
-      // event.preventDefault()
-      // event.returnValue = '¿Estás seguro de que quieres cerrar la página?'
+      // NO limpiar sesión aquí - puede ser una recarga
+      // Solo marcar timestamp para verificación posterior
+      if (document.hidden) {
+        localStorage.setItem("tab_closed_time", Date.now().toString())
+      }
     }
 
     // Eventos para detectar actividad
@@ -162,38 +181,65 @@ export function useBrowserSession({
     
     // Agregar event listeners
     document.addEventListener('visibilitychange', handleVisibilityChange)
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    window.addEventListener('unload', handleBrowserClose)
+    // NO agregar beforeunload/unload porque se disparan en recarga
+    // window.addEventListener('beforeunload', handleBeforeUnload)
+    // window.addEventListener('unload', handleBrowserClose)
     
     events.forEach(event => {
       document.addEventListener(event, handleActivity, true)
     })
 
     // Verificar si la sesión ya expiró al cargar
+    // SOLO verificar si realmente la pestaña estuvo cerrada por mucho tiempo
     const checkSessionValidity = () => {
       const lastActivity = localStorage.getItem("last_activity")
-      if (lastActivity) {
+      const tabClosedTime = localStorage.getItem("tab_closed_time")
+      
+      // Solo verificar si hay evidencia de que la pestaña estuvo cerrada
+      if (tabClosedTime && lastActivity) {
+        const timeSinceTabClosed = Date.now() - parseInt(tabClosedTime)
         const timeSinceLastActivity = Date.now() - parseInt(lastActivity)
-        if (timeSinceLastActivity > TAB_TIMEOUT_MS) {
-          // Sesión expiró mientras la pestaña estaba cerrada
+        
+        // Solo invalidar si:
+        // 1. La pestaña estuvo cerrada por más del timeout
+        // 2. Y la última actividad fue antes de cerrar la pestaña
+        if (timeSinceTabClosed > TAB_TIMEOUT_MS && timeSinceLastActivity > TAB_TIMEOUT_MS) {
+          console.log('⏰ [useBrowserSession] Sesión expirada por inactividad prolongada')
           invalidateSession()
           clearLocalSession()
           logout()
           onSessionInvalidated?.()
+        } else {
+          // Si no expiró, actualizar la última actividad al momento actual
+          // Esto previene que se cierre la sesión en recargas normales
+          localStorage.setItem("last_activity", Date.now().toString())
         }
+      } else {
+        // Si no hay evidencia de cierre de pestaña, actualizar actividad
+        // Esto es importante para recargas normales
+        localStorage.setItem("last_activity", Date.now().toString())
       }
     }
 
-    // Verificar al cargar si la pestaña estaba cerrada
+    // Verificar al cargar solo si la pestaña estaba oculta
+    // Pero NO invalidar inmediatamente - dar oportunidad de recuperar
     if (document.hidden) {
-      checkSessionValidity()
+      // Esperar un momento antes de verificar para dar tiempo a que la página cargue
+      setTimeout(() => {
+        checkSessionValidity()
+      }, 1000)
+    } else {
+      // Si la pestaña está visible, actualizar actividad inmediatamente
+      // Esto previene que se cierre la sesión en recargas
+      localStorage.setItem("last_activity", Date.now().toString())
     }
 
     return () => {
       // Limpiar event listeners
       document.removeEventListener('visibilitychange', handleVisibilityChange)
-      window.removeEventListener('beforeunload', handleBeforeUnload)
-      window.removeEventListener('unload', handleBrowserClose)
+      // NO remover beforeunload/unload porque no los agregamos
+      // window.removeEventListener('beforeunload', handleBeforeUnload)
+      // window.removeEventListener('unload', handleBrowserClose)
       
       events.forEach(event => {
         document.removeEventListener(event, handleActivity, true)

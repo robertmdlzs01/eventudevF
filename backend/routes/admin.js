@@ -2963,6 +2963,29 @@ router.get('/ticket-templates', async (req, res) => {
 
 async function handleGetTicketTemplates(req, res) {
   try {
+    // Verificar si la tabla existe
+    let tableExists = false
+    try {
+      const tableCheck = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = 'public'
+          AND table_name = 'ticket_templates'
+        )
+      `)
+      tableExists = tableCheck.rows[0]?.exists || false
+    } catch (tableCheckError) {
+      console.warn('Error verificando existencia de tabla ticket_templates:', tableCheckError)
+      tableExists = false
+    }
+
+    if (!tableExists) {
+      return res.json({
+        success: true,
+        data: []
+      })
+    }
+
     const { clientId, eventId } = req.query
 
     let query = `
@@ -3020,6 +3043,26 @@ router.get('/ticket-templates/:id', async (req, res) => {
 
 async function handleGetTicketTemplate(req, res) {
   try {
+    // Verificar si la tabla existe
+    let tableExists = false
+    try {
+      const tableCheck = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = 'public'
+          AND table_name = 'ticket_templates'
+        )
+      `)
+      tableExists = tableCheck.rows[0]?.exists || false
+    } catch (tableCheckError) {
+      console.warn('Error verificando existencia de tabla ticket_templates:', tableCheckError)
+      tableExists = false
+    }
+
+    if (!tableExists) {
+      return res.status(404).json({ success: false, error: 'Plantilla no encontrada' })
+    }
+
     const { id } = req.params
 
     const result = await db.query(
@@ -3067,6 +3110,29 @@ router.post('/ticket-templates', async (req, res) => {
 
 async function handleSaveTicketTemplate(req, res) {
   try {
+    // Verificar si la tabla existe
+    let tableExists = false
+    try {
+      const tableCheck = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = 'public'
+          AND table_name = 'ticket_templates'
+        )
+      `)
+      tableExists = tableCheck.rows[0]?.exists || false
+    } catch (tableCheckError) {
+      console.warn('Error verificando existencia de tabla ticket_templates:', tableCheckError)
+      tableExists = false
+    }
+
+    if (!tableExists) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'La tabla ticket_templates no existe. Por favor, ejecuta la migración correspondiente.' 
+      })
+    }
+
     const {
       id,
       name,
@@ -3197,6 +3263,26 @@ router.delete('/ticket-templates/:id', async (req, res) => {
 
 async function handleDeleteTicketTemplate(req, res) {
   try {
+    // Verificar si la tabla existe
+    let tableExists = false
+    try {
+      const tableCheck = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = 'public'
+          AND table_name = 'ticket_templates'
+        )
+      `)
+      tableExists = tableCheck.rows[0]?.exists || false
+    } catch (tableCheckError) {
+      console.warn('Error verificando existencia de tabla ticket_templates:', tableCheckError)
+      tableExists = false
+    }
+
+    if (!tableExists) {
+      return res.status(404).json({ success: false, error: 'Plantilla no encontrada' })
+    }
+
     const { id } = req.params
 
     // Check if template is default
@@ -3210,9 +3296,9 @@ async function handleDeleteTicketTemplate(req, res) {
     }
 
     if (checkResult.rows[0].is_default) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'No se puede eliminar la plantilla por defecto' 
+      return res.status(400).json({
+        success: false,
+        error: 'No se puede eliminar la plantilla por defecto'
       })
     }
 

@@ -99,16 +99,28 @@ export class ApiClient {
     }
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+  private async request<T>(endpoint: string, options: RequestInit & { skipAuth?: boolean } = {}): Promise<ApiResponse<T>> {
     const url = `${this.baseUrl}${endpoint}`
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    }
+
+    // Solo agregar auth headers si no se especifica skipAuth
+    if (!options.skipAuth) {
+      Object.assign(headers, this.getAuthHeaders())
+    }
 
     const config: RequestInit = {
       ...options,
       headers: {
-        ...this.getAuthHeaders(),
+        ...headers,
         ...options.headers,
       },
     }
+    
+    // Remover skipAuth de las opciones antes de pasarlas a fetch
+    delete (config as any).skipAuth
 
     try {
       const response = await fetch(url, config)
@@ -1638,9 +1650,16 @@ export class ApiClient {
 
   // ===== MÉTODOS DE PUNTOS DE VENTA =====
 
-  // Obtener todos los puntos de venta
+  // Obtener todos los puntos de venta (requiere autenticación)
   async getSalesPoints(): Promise<ApiResponse<any>> {
     return this.request('/sales-points')
+  }
+
+  // Obtener puntos de venta activos (público, sin autenticación)
+  async getPublicSalesPoints(): Promise<ApiResponse<any>> {
+    return this.request('/sales-points/public', {
+      skipAuth: true
+    })
   }
 
   // Crear nuevo punto de venta
@@ -2106,6 +2125,43 @@ export class ApiClient {
     })
   }
 
+  // ===== METRICS =====
+
+  /**
+   * Get event metrics
+   */
+  async getEventMetrics(eventId: string | number): Promise<ApiResponse<any>> {
+    return this.request(`/metrics/event/${eventId}`)
+  }
+
+  /**
+   * Get ticket type metrics
+   */
+  async getTicketTypeMetrics(ticketTypeId: string | number): Promise<ApiResponse<any>> {
+    return this.request(`/metrics/ticket-type/${ticketTypeId}`)
+  }
+
+  /**
+   * Get delivery metrics
+   */
+  async getDeliveryMetrics(filters?: { delivery_type?: string; delivery_status?: string }): Promise<ApiResponse<any[]>> {
+    const params = new URLSearchParams()
+    if (filters?.delivery_type) params.append('delivery_type', filters.delivery_type)
+    if (filters?.delivery_status) params.append('delivery_status', filters.delivery_status)
+    const queryString = params.toString()
+    return this.request(`/metrics/delivery${queryString ? `?${queryString}` : ''}`)
+  }
+
+  /**
+   * Get all events metrics
+   */
+  async getAllEventsMetrics(limit?: number, offset?: number): Promise<ApiResponse<any[]>> {
+    const params = new URLSearchParams()
+    if (limit) params.append('limit', limit.toString())
+    if (offset) params.append('offset', offset.toString())
+    const queryString = params.toString()
+    return this.request(`/metrics/events${queryString ? `?${queryString}` : ''}`)
+  }
 }
 
 export const apiClient = new ApiClient()

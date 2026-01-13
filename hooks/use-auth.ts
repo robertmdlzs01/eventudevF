@@ -54,9 +54,10 @@ export function useAuth(): AuthState & AuthActions {
           // Verificar si el token es válido con el backend (con manejo de errores robusto)
           try {
             // Verificar si ya verificamos el token recientemente (evitar spam)
+            // Aumentar el tiempo de cache a 5 minutos para evitar verificaciones excesivas
             const lastVerification = localStorage.getItem('last_token_verification')
             const now = Date.now()
-            if (lastVerification && (now - parseInt(lastVerification)) < 30000) { // 30 segundos
+            if (lastVerification && (now - parseInt(lastVerification)) < 300000) { // 5 minutos
               console.log('⏭️ [useAuth] Verificación reciente, usando sesión local')
               setAuthState({
                 isAuthenticated: true,
@@ -68,14 +69,17 @@ export function useAuth(): AuthState & AuthActions {
             }
             
             console.log('📡 [useAuth] Verificando token con backend...')
-            const response = await fetch('http://localhost:3002/api/auth/verify-token', {
+            
+            // Usar apiClient en lugar de fetch directo para usar la URL correcta
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3002'
+            const response = await fetch(`${apiUrl}/api/auth/verify-token`, {
               method: 'GET',
               headers: {
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
               },
               // Agregar timeout para evitar que se cuelgue
-              signal: AbortSignal.timeout(5000) // 5 segundos timeout
+              signal: AbortSignal.timeout(10000) // 10 segundos timeout (aumentado)
             })
             
             console.log('📊 [useAuth] Respuesta del servidor:', response.status, response.statusText)
@@ -148,15 +152,26 @@ export function useAuth(): AuthState & AuthActions {
                 })
               }
             }
-          } catch (error) {
-            console.warn('Error de conectividad verificando token, manteniendo sesión local:', error)
-            // En caso de error de red, mantener la sesión local
+          } catch (error: any) {
+            // En caso de error de red o timeout, mantener la sesión local
+            // Esto es importante para que la sesión persista en recargas
+            if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+              console.warn('⏱️ [useAuth] Timeout verificando token, manteniendo sesión local')
+            } else {
+              console.warn('🌐 [useAuth] Error de conectividad verificando token, manteniendo sesión local:', error.message)
+            }
+            
+            // SIEMPRE mantener la sesión local si hay datos válidos en localStorage
+            // Esto previene que se cierre la sesión por problemas de red
             setAuthState({
               isAuthenticated: true,
               user,
               token,
               isLoading: false
             })
+            
+            // Marcar verificación como exitosa localmente para evitar reintentos inmediatos
+            localStorage.setItem('last_token_verification', Date.now().toString())
           }
         } catch (error) {
           console.error('Error parsing user data:', error)

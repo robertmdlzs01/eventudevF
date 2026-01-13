@@ -514,7 +514,7 @@ router.get('/categories', process.env.NODE_ENV === 'production' ? auth : (req, r
     const result = await db.query(query);
     
     // Filtrar duplicados por ID y mapear datos
-    const uniqueCategories = result.rows.reduce((acc: any[], category: any) => {
+    const uniqueCategories = result.rows.reduce((acc, category) => {
       const existingIndex = acc.findIndex(c => c.id === category.id);
       if (existingIndex === -1) {
         acc.push({

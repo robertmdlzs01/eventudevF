@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { TicketManager, type EventCapacity } from "@/lib/ticket-management"
+import { IntegratedEventMetrics } from "@/components/admin/integrated-event-metrics"
 
 interface EventCapacityPageClientProps {
   eventId: string
@@ -214,6 +215,7 @@ export default function EventCapacityPageClient({ eventId }: EventCapacityPageCl
           <TabsTrigger value="overview">Resumen</TabsTrigger>
           <TabsTrigger value="configuration">Configuración</TabsTrigger>
           <TabsTrigger value="sales">Ventas</TabsTrigger>
+          <TabsTrigger value="metrics">Métricas Integradas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -397,6 +399,10 @@ export default function EventCapacityPageClient({ eventId }: EventCapacityPageCl
           </Card>
         </TabsContent>
 
+
+        <TabsContent value="metrics" className="space-y-4">
+          <IntegratedEventMetrics eventId={eventId} />
+        </TabsContent>
         <TabsContent value="sales" className="space-y-4">
           <Card>
             <CardHeader>

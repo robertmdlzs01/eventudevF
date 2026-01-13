@@ -128,7 +128,7 @@ class TicketTemplateService {
     }
   }
 
-  // Generar HTML del boleto desde plantilla
+  // Generar HTML del boleto desde plantilla (Premium)
   generateTicketHTML(template: TicketTemplate, data: TicketData): string {
     const { measurements, fields } = template
     
@@ -138,12 +138,12 @@ class TicketTemplateService {
     const widthPx = mmToPx(measurements.width)
     const heightPx = mmToPx(measurements.height)
     
-    // Generar CSS para cada campo
+    // Generar CSS para cada campo con estilos premium
     const fieldStyles = fields
       .filter(field => field.visible)
       .map(field => {
-        const x = mmToPx(field.position.x)
-        const y = mmToPx(field.position.y)
+        const x = mmToPx(field.position.x + (measurements.marginLeft || 0))
+        const y = mmToPx(field.position.y + (measurements.marginTop || 0))
         const w = mmToPx(field.size.width)
         const h = mmToPx(field.size.height)
         
@@ -152,35 +152,67 @@ class TicketTemplateService {
         switch (field.type) {
           case 'text':
             content = this.getFieldContent(field, data)
+            const fontSize = field.style.fontSize || 12
+            const fontWeight = field.style.fontWeight === 'bold' ? 'bold' : 
+                             field.style.fontWeight === 'italic' ? 'normal' : 'normal'
+            const fontStyle = field.style.fontWeight === 'italic' ? 'italic' : 'normal'
+            const textAlign = field.style.textAlign || 'left'
+            const padding = measurements.padding || 0
+            
             return `
-              <div class="field-${field.id}" style="
+              <div class="field-${field.id} ticket-field" style="
                 position: absolute;
                 left: ${x}px;
                 top: ${y}px;
                 width: ${w}px;
-                height: ${h}px;
-                font-size: ${field.style.fontSize || 12}pt;
-                font-family: ${field.style.fontFamily || 'Arial, sans-serif'};
-                font-weight: ${field.style.fontWeight || 'normal'};
+                min-height: ${h}px;
+                font-size: ${fontSize}pt;
+                font-family: '${field.style.fontFamily || 'Arial, Helvetica, sans-serif'}', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                font-weight: ${fontWeight};
+                font-style: ${fontStyle};
                 color: ${field.style.color || '#000000'};
-                text-align: ${field.style.textAlign || 'left'};
+                text-align: ${textAlign};
                 background-color: ${field.style.backgroundColor || 'transparent'};
                 border: ${field.style.borderWidth || 0}px solid ${field.style.borderColor || 'transparent'};
-                padding: ${measurements.padding}px;
+                padding: ${padding}px;
                 overflow: hidden;
-              ">${content}</div>
+                line-height: 1.4;
+                display: flex;
+                align-items: ${textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'};
+                justify-content: ${textAlign === 'center' ? 'center' : textAlign === 'right' ? 'flex-end' : 'flex-start'};
+                word-wrap: break-word;
+                text-rendering: optimizeLegibility;
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+              ">
+                ${content}
+              </div>
             `
             
           case 'qr':
             return `
-              <div class="field-${field.id}" style="
+              <div class="field-${field.id} ticket-qr" style="
                 position: absolute;
                 left: ${x}px;
                 top: ${y}px;
                 width: ${w}px;
                 height: ${h}px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: white;
+                border: 1px solid #e5e7eb;
+                border-radius: 4px;
+                padding: 2px;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
               ">
-                <img src="${data.qrCode}" alt="QR Code" style="width: 100%; height: 100%; object-fit: contain;" />
+                <img src="${data.qrCode}" alt="QR Code" style="
+                  width: 100%;
+                  height: 100%;
+                  object-fit: contain;
+                  image-rendering: -webkit-optimize-contrast;
+                  image-rendering: crisp-edges;
+                " />
               </div>
             `
             
@@ -189,39 +221,57 @@ class TicketTemplateService {
             const imageUrl = field.type === 'logo' ? (data.logo || '') : (data.eventImage || '')
             if (!imageUrl) return ''
             return `
-              <div class="field-${field.id}" style="
+              <div class="field-${field.id} ticket-image" style="
                 position: absolute;
                 left: ${x}px;
                 top: ${y}px;
                 width: ${w}px;
                 height: ${h}px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                overflow: hidden;
+                border-radius: 2px;
               ">
-                <img src="${imageUrl}" alt="${field.label}" style="width: 100%; height: 100%; object-fit: contain;" />
+                <img src="${imageUrl}" alt="${field.label}" style="
+                  width: 100%;
+                  height: 100%;
+                  object-fit: contain;
+                  image-rendering: -webkit-optimize-contrast;
+                " />
               </div>
             `
             
           case 'line':
+            const lineWidth = field.style.borderWidth || 1
+            const lineColor = field.style.borderColor || '#000000'
             return `
-              <div class="field-${field.id}" style="
+              <div class="field-${field.id} ticket-line" style="
                 position: absolute;
                 left: ${x}px;
                 top: ${y}px;
                 width: ${w}px;
                 height: ${h}px;
-                border-top: ${field.style.borderWidth || 1}px solid ${field.style.borderColor || '#000000'};
+                border-top: ${lineWidth}px solid ${lineColor};
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
               "></div>
             `
             
           case 'rectangle':
+            const rectBorderWidth = field.style.borderWidth || 1
+            const rectBorderColor = field.style.borderColor || '#000000'
+            const rectBgColor = field.style.backgroundColor || 'transparent'
             return `
-              <div class="field-${field.id}" style="
+              <div class="field-${field.id} ticket-rectangle" style="
                 position: absolute;
                 left: ${x}px;
                 top: ${y}px;
                 width: ${w}px;
                 height: ${h}px;
-                border: ${field.style.borderWidth || 1}px solid ${field.style.borderColor || '#000000'};
-                background-color: ${field.style.backgroundColor || 'transparent'};
+                border: ${rectBorderWidth}px solid ${rectBorderColor};
+                background-color: ${rectBgColor};
+                border-radius: 2px;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
               "></div>
             `
             
@@ -236,26 +286,78 @@ class TicketTemplateService {
       <html>
       <head>
         <meta charset="UTF-8">
-        <title>Ticket ${data.ticketNumber}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Boleto ${data.ticketNumber} - ${data.eventName}</title>
         <style>
+          @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;500;600;700&display=swap');
+          
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
           @media print {
             @page {
               size: ${measurements.width}mm ${measurements.height}mm;
-              margin: 0;
+              margin: ${measurements.marginTop || 0}mm ${measurements.marginRight || 0}mm ${measurements.marginBottom || 0}mm ${measurements.marginLeft || 0}mm;
             }
             body {
               margin: 0;
               padding: 0;
+              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
+            }
+            .ticket-field,
+            .ticket-qr,
+            .ticket-image,
+            .ticket-line,
+            .ticket-rectangle {
+              print-color-adjust: exact;
+              -webkit-print-color-adjust: exact;
             }
           }
+          
           body {
             margin: 0;
-            padding: 0;
+            padding: ${measurements.padding || 0}px;
             width: ${widthPx}px;
-            height: ${heightPx}px;
+            min-height: ${heightPx}px;
             position: relative;
-            font-family: Arial, sans-serif;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: white;
+            color: #000000;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            text-rendering: optimizeLegibility;
+          }
+          
+          .ticket-field {
+            box-sizing: border-box;
+          }
+          
+          .ticket-field strong,
+          .ticket-field b {
+            font-weight: 600;
+          }
+          
+          .ticket-field em,
+          .ticket-field i {
+            font-style: italic;
+          }
+          
+          .ticket-qr img {
+            max-width: 100%;
+            max-height: 100%;
+          }
+          
+          /* Estilos premium adicionales */
+          @media screen {
+            body {
+              box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+              border-radius: 8px;
+            }
           }
         </style>
       </head>

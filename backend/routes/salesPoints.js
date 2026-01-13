@@ -4,8 +4,52 @@ const db = require("../config/database-postgres")
 
 const router = express.Router()
 
+// GET /api/sales-points/public
+// Obtener puntos de venta activos (público, sin autenticación)
+router.get("/public", async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        id,
+        name,
+        location,
+        contact_person,
+        phone,
+        email,
+        is_active,
+        created_at
+      FROM sales_points
+      WHERE is_active = true
+      ORDER BY name ASC
+    `
+    
+    const result = await db.query(query)
+    
+    res.json({
+      success: true,
+      data: result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        location: row.location,
+        contact_person: row.contact_person,
+        phone: row.phone,
+        email: row.email,
+        is_active: row.is_active,
+        created_at: row.created_at
+      }))
+    })
+    
+  } catch (error) {
+    console.error("Error obteniendo puntos de venta públicos:", error)
+    res.status(500).json({
+      success: false,
+      message: "Error interno del servidor"
+    })
+  }
+})
+
 // GET /api/sales-points
-// Obtener todos los puntos de venta
+// Obtener todos los puntos de venta (requiere autenticación)
 router.get("/", auth, requireRole(['admin', 'organizer']), async (req, res) => {
   try {
     const { status, search } = req.query

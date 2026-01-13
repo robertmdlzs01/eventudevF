@@ -7,29 +7,53 @@ require("dotenv").config({
 })
 
 // Configuración de SSL para PostgreSQL
-const sslConfig = process.env.DB_SSL === 'true' ? {
+// En producción (Railway), siempre usar SSL. En desarrollo, depende de DB_SSL
+const isProduction = process.env.NODE_ENV === 'production'
+const sslConfig = (isProduction || process.env.DB_SSL === 'true') ? {
   rejectUnauthorized: false, // Cambiar a true si tienes certificados válidos
   // ca: fs.readFileSync('/path/to/ca-certificate.crt').toString(), // Descomentar si tienes certificado CA
 } : false
 
 // Configuración de la base de datos PostgreSQL
-const pool = new Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || "eventu_db",
-  user: process.env.DB_USER || "postgres",
-  password: process.env.DB_PASSWORD || "password",
-  ssl: sslConfig,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-})
+// Prioridad: DATABASE_URL (Railway) > Variables individuales > Valores por defecto
+let poolConfig = {}
+
+if (process.env.DATABASE_URL) {
+  // Railway proporciona DATABASE_URL automáticamente
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+    ssl: isProduction ? sslConfig : false,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  }
+} else {
+  // Usar variables individuales (desarrollo o configuración manual)
+  poolConfig = {
+    host: process.env.DB_HOST || "localhost",
+    port: process.env.DB_PORT || 5432,
+    database: process.env.DB_NAME || "eventu_db",
+    user: process.env.DB_USER || "postgres",
+    password: process.env.DB_PASSWORD || "password",
+    ssl: sslConfig,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+  }
+}
+
+const pool = new Pool(poolConfig)
 
 // Test connection
 pool.on('connect', () => {
   console.log('✅ Connected to PostgreSQL database')
-  console.log(`📊 Database: ${process.env.DB_NAME}`)
-  console.log(`🔒 SSL: ${process.env.DB_SSL === 'true' ? 'Enabled' : 'Disabled'}`)
+  if (process.env.DATABASE_URL) {
+    console.log('📊 Using DATABASE_URL (Railway/production)')
+  } else {
+    console.log(`📊 Database: ${process.env.DB_NAME || 'eventu_db'}`)
+  }
+  const sslEnabled = isProduction || process.env.DB_SSL === 'true'
+  console.log(`🔒 SSL: ${sslEnabled ? 'Enabled' : 'Disabled'}`)
   console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`)
 })
 
