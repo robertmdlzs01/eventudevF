@@ -38,6 +38,7 @@ interface PhysicalTicket {
   createdDate: string
   printedDate?: string
   distributedDate?: string
+  notes?: string
 }
 
 // Función para obtener boletas físicas reales de la base de datos
